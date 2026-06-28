@@ -25,7 +25,7 @@ class BrowserController {
   final ValueNotifier<BrowserState> stateNotifier =
       ValueNotifier(const BrowserState());
 
-  bool _pendingInitialBookmarksLoad = false;
+  bool _pendingInitialBookmarksLoad = true;
   Timer? _cursorSyncTimer;
   double? _pendingCursorX;
   double? _pendingCursorY;
@@ -49,7 +49,21 @@ class BrowserController {
 
   void attach(InAppWebViewController controller) {
     _webViewController = controller;
-    _pendingInitialBookmarksLoad = true;
+    unawaited(_loadInitialBookmarksIfNeeded());
+  }
+
+  Future<void> _loadInitialBookmarksIfNeeded() async {
+    if (!_pendingInitialBookmarksLoad || _webViewController == null) {
+      return;
+    }
+
+    final url = (await _webViewController?.getUrl())?.toString() ?? '';
+    if (!_isAboutBlank(url)) {
+      return;
+    }
+
+    _pendingInitialBookmarksLoad = false;
+    await loadBookmarksHome();
   }
 
   void _emit(BrowserState next) {
@@ -202,7 +216,7 @@ class BrowserController {
     final urlString = url?.toString() ?? '';
 
     if (_isAboutBlank(urlString)) {
-      if (_pendingInitialBookmarksLoad) {
+      if (_pendingInitialBookmarksLoad && _webViewController != null) {
         _pendingInitialBookmarksLoad = false;
         await loadBookmarksHome();
       }

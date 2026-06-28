@@ -125,6 +125,8 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
           disableVerticalScroll: false,
           allowsInlineMediaPlayback: true,
           mediaPlaybackRequiresUserGesture: false,
+          useHybridComposition: true,
+          transparentBackground: false,
         ),
         initialUserScripts: UnmodifiableListView<UserScript>([
           UserScript(
