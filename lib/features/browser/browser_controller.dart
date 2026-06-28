@@ -15,6 +15,7 @@ class BrowserController {
   final BrowserSettings settings;
   final BookmarkRepository bookmarkRepository;
   InAppWebViewController? _webViewController;
+  bool _pendingInitialBookmarksLoad = true;
 
   BrowserState state = const BrowserState();
 
@@ -153,6 +154,14 @@ class BrowserController {
   }
 
   Future<void> onLoadStop(WebUri? url) async {
+    final urlString = url?.toString() ?? '';
+    if (_pendingInitialBookmarksLoad &&
+        (urlString == 'about:blank' || urlString.isEmpty)) {
+      _pendingInitialBookmarksLoad = false;
+      await loadBookmarksHome();
+      return;
+    }
+
     await updateNavigationState();
     _emit(state.copyWith(isLoading: false, progress: 100));
     await syncViewport(_lastViewportWidth, _lastViewportHeight);

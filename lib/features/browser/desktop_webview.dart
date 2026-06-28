@@ -26,6 +26,7 @@ class DesktopWebView extends StatefulWidget {
 class _DesktopWebViewState extends State<DesktopWebView> {
   String? _desktopModeScript;
   String? _mouseBridgeScript;
+  Size? _lastReportedSize;
 
   @override
   void initState() {
@@ -45,6 +46,15 @@ class _DesktopWebViewState extends State<DesktopWebView> {
     });
   }
 
+  void _reportSizeIfChanged(Size size) {
+    if (_lastReportedSize == size) {
+      return;
+    }
+    _lastReportedSize = size;
+    widget.onSizeChanged?.call(size);
+    widget.controller.syncViewport(size.width, size.height);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_desktopModeScript == null || _mouseBridgeScript == null) {
@@ -54,10 +64,14 @@ class _DesktopWebViewState extends State<DesktopWebView> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          widget.onSizeChanged?.call(size);
-          widget.controller.syncViewport(size.width, size.height);
-        });
+        if (_lastReportedSize != size) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) {
+              return;
+            }
+            _reportSizeIfChanged(size);
+          });
+        }
 
         return IgnorePointer(
           ignoring: true,
@@ -69,14 +83,16 @@ class _DesktopWebViewState extends State<DesktopWebView> {
               userAgent: DesktopUserAgent.chromeWindows,
               javaScriptEnabled: true,
               useWideViewPort: true,
-              loadWithOverviewMode: false,
-              supportZoom: false,
+              loadWithOverviewMode: true,
+              supportZoom: true,
               builtInZoomControls: false,
               displayZoomControls: false,
               disableHorizontalScroll: false,
               disableVerticalScroll: false,
               allowsInlineMediaPlayback: true,
               mediaPlaybackRequiresUserGesture: false,
+              useHybridComposition: true,
+              transparentBackground: false,
             ),
             initialUserScripts: UnmodifiableListView<UserScript>([
               UserScript(

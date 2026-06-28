@@ -20,6 +20,8 @@ class BrowserScreen extends StatefulWidget {
 
 class _BrowserScreenState extends State<BrowserScreen>
     with WidgetsBindingObserver {
+  static const double _toolbarContentHeight = 52;
+
   late final BrowserController _browserController;
   late final TextEditingController _urlController;
   late final FocusNode _urlFocusNode;
@@ -107,7 +109,14 @@ class _BrowserScreenState extends State<BrowserScreen>
       _toolbarVisibility.forceShow();
     } else if (!_urlFocusNode.hasFocus) {
       _toolbarVisibility.onCursorMove(_cursorState.position.dy);
+      if (_cursorState.position == Offset.zero && _viewportSize != Size.zero) {
+        _centerCursor();
+      }
     }
+  }
+
+  double _toolbarHeight(BuildContext context) {
+    return MediaQuery.paddingOf(context).top + _toolbarContentHeight;
   }
 
   void _centerCursor() {
@@ -240,11 +249,16 @@ class _BrowserScreenState extends State<BrowserScreen>
   @override
   Widget build(BuildContext context) {
     final toolbarVisible = _toolbarVisibility.visible;
+    final topInset = toolbarVisible ? _toolbarHeight(context) : 0.0;
 
     return Scaffold(
       body: Stack(
         children: [
-          Positioned.fill(
+          Positioned(
+            top: topInset,
+            left: 0,
+            right: 0,
+            bottom: 0,
             child: TouchpadDetector(
               sensitivity: _browserController.settings.cursorSensitivity,
               scrollSensitivity: _browserController.settings.scrollSensitivity,
@@ -258,14 +272,15 @@ class _BrowserScreenState extends State<BrowserScreen>
                   Positioned.fill(
                     child: DesktopWebView(
                       controller: _browserController,
-                      onCreated: () async {
+                      onCreated: () {
                         setState(() {
                           _webViewReady = true;
                         });
-                        await _browserController.loadBookmarksHome();
-                        _centerCursor();
                       },
                       onSizeChanged: (size) {
+                        if (_viewportSize == size) {
+                          return;
+                        }
                         setState(() {
                           _viewportSize = size;
                           if (_cursorState.position == Offset.zero) {
@@ -274,7 +289,6 @@ class _BrowserScreenState extends State<BrowserScreen>
                             _cursorState.moveBy(Offset.zero, size);
                           }
                         });
-                        _browserController.syncViewport(size.width, size.height);
                       },
                     ),
                   ),
