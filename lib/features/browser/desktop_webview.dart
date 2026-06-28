@@ -7,17 +7,17 @@ import '../../core/constants/desktop_user_agent.dart';
 import '../../core/injection/script_loader.dart';
 import 'browser_controller.dart';
 
-/// Hosts [InAppWebView] in an isolated subtree so parent rebuilds
-/// (progress, cursor, toolbar) do not recreate the platform view.
 class DesktopWebView extends StatefulWidget {
   const DesktopWebView({
     super.key,
     required this.controller,
     required this.onCreated,
+    this.onSizeChanged,
   });
 
   final BrowserController controller;
   final VoidCallback onCreated;
+  final ValueChanged<Size>? onSizeChanged;
 
   @override
   State<DesktopWebView> createState() => _DesktopWebViewState();
@@ -26,6 +26,7 @@ class DesktopWebView extends StatefulWidget {
 class _DesktopWebViewState extends State<DesktopWebView> {
   String? _desktopModeScript;
   String? _mouseBridgeScript;
+  Size? _lastReportedSize;
 
   @override
   void initState() {
@@ -45,18 +46,40 @@ class _DesktopWebViewState extends State<DesktopWebView> {
     });
   }
 
+  void _reportSizeIfChanged(Size size) {
+    if (_lastReportedSize == size) {
+      return;
+    }
+    _lastReportedSize = size;
+    widget.onSizeChanged?.call(size);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_desktopModeScript == null || _mouseBridgeScript == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return _InAppWebViewHost(
-      key: const ValueKey('inapp-webview-host'),
-      controller: widget.controller,
-      desktopModeScript: _desktopModeScript!,
-      mouseBridgeScript: _mouseBridgeScript!,
-      onCreated: widget.onCreated,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        if (_lastReportedSize != size) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) {
+              return;
+            }
+            _reportSizeIfChanged(size);
+          });
+        }
+
+        return _InAppWebViewHost(
+          key: const ValueKey('inapp-webview-host'),
+          controller: widget.controller,
+          desktopModeScript: _desktopModeScript!,
+          mouseBridgeScript: _mouseBridgeScript!,
+          onCreated: widget.onCreated,
+        );
+      },
     );
   }
 }
@@ -102,8 +125,6 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
           disableVerticalScroll: false,
           allowsInlineMediaPlayback: true,
           mediaPlaybackRequiresUserGesture: false,
-          useHybridComposition: false,
-          transparentBackground: false,
         ),
         initialUserScripts: UnmodifiableListView<UserScript>([
           UserScript(
@@ -142,7 +163,9 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
           widget.controller.onProgressChanged(progress);
         },
         onTitleChanged: (controller, title) {
-          widget.controller.updateNavigationState();
+          if (!widget.controller.state.isLoading) {
+            widget.controller.updateNavigationState();
+          }
         },
       ),
     );

@@ -20,8 +20,6 @@ class BrowserScreen extends StatefulWidget {
 
 class _BrowserScreenState extends State<BrowserScreen>
     with WidgetsBindingObserver {
-  static const double _toolbarContentHeight = 52;
-
   late final BrowserController _browserController;
   late final TextEditingController _urlController;
   late final FocusNode _urlFocusNode;
@@ -33,7 +31,6 @@ class _BrowserScreenState extends State<BrowserScreen>
   Size _viewportSize = Size.zero;
   bool _webViewReady = false;
   bool _isBookmarked = false;
-  double _lastTopInset = -1;
 
   @override
   void initState() {
@@ -74,12 +71,6 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _syncViewportFromLayout();
-  }
-
   void _onUrlFocusChanged() {
     if (_urlFocusNode.hasFocus) {
       _toolbarVisibility.pin();
@@ -90,43 +81,22 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   void _onToolbarVisibilityChanged() {
     setState(() {});
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _syncViewportFromLayout();
-    });
   }
 
-  double _toolbarHeight(BuildContext context) {
-    return MediaQuery.paddingOf(context).top + _toolbarContentHeight;
-  }
-
-  double _topInset(BuildContext context) {
-    return _toolbarVisibility.visible ? _toolbarHeight(context) : 0.0;
-  }
-
-  void _syncViewportFromLayout() {
-    final topInset = _topInset(context);
-    final screenSize = MediaQuery.sizeOf(context);
-    final contentSize = Size(
-      screenSize.width,
-      (screenSize.height - topInset).clamp(0, screenSize.height),
-    );
-
-    if (contentSize == _viewportSize && topInset == _lastTopInset) {
+  void _handleViewportSizeChanged(Size size) {
+    if (_viewportSize == size) {
       return;
     }
+    _viewportSize = size;
 
-    _lastTopInset = topInset;
-    _viewportSize = contentSize;
-
-    if (_cursorState.position == Offset.zero && contentSize != Size.zero) {
-      _cursorState.centerIn(contentSize);
-      _cursorPosition.value = _cursorState.position;
-    } else if (contentSize != Size.zero) {
-      _cursorState.moveBy(Offset.zero, contentSize);
-      _cursorPosition.value = _cursorState.position;
+    if (_cursorState.position == Offset.zero && size != Size.zero) {
+      _cursorState.centerIn(size);
+    } else if (size != Size.zero) {
+      _cursorState.moveBy(Offset.zero, size);
     }
+    _cursorPosition.value = _cursorState.position;
 
-    _browserController.syncViewport(contentSize.width, contentSize.height);
+    _browserController.syncViewport(size.width, size.height);
     _syncCursorToPage();
   }
 
@@ -154,9 +124,6 @@ class _BrowserScreenState extends State<BrowserScreen>
       _toolbarVisibility.forceShow();
     } else if (!_urlFocusNode.hasFocus) {
       _toolbarVisibility.onCursorMove(_cursorState.position.dy);
-      if (_cursorState.position == Offset.zero && _viewportSize != Size.zero) {
-        _centerCursor();
-      }
     }
   }
 
@@ -278,16 +245,11 @@ class _BrowserScreenState extends State<BrowserScreen>
   @override
   Widget build(BuildContext context) {
     final toolbarVisible = _toolbarVisibility.visible;
-    final topInset = _topInset(context);
 
     return Scaffold(
       body: Stack(
         children: [
-          Positioned(
-            top: topInset,
-            left: 0,
-            right: 0,
-            bottom: 0,
+          Positioned.fill(
             child: TouchpadDetector(
               sensitivity: _browserController.settings.cursorSensitivity,
               scrollSensitivity: _browserController.settings.scrollSensitivity,
@@ -303,6 +265,7 @@ class _BrowserScreenState extends State<BrowserScreen>
                       key: const ValueKey('desktop-webview'),
                       controller: _browserController,
                       onCreated: _onWebViewCreated,
+                      onSizeChanged: _handleViewportSizeChanged,
                     ),
                   ),
                   ValueListenableBuilder<int>(
@@ -356,13 +319,14 @@ class _BrowserScreenState extends State<BrowserScreen>
     );
   }
 
-  void _onWebViewCreated() {
+  Future<void> _onWebViewCreated() async {
     if (!mounted) {
       return;
     }
     setState(() {
       _webViewReady = true;
     });
-    _syncViewportFromLayout();
+    await _browserController.loadBookmarksHome();
+    _centerCursor();
   }
 }

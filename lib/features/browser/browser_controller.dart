@@ -16,11 +16,9 @@ class BrowserController {
   final BrowserSettings settings;
   final BookmarkRepository bookmarkRepository;
   InAppWebViewController? _webViewController;
-  bool _pendingInitialBookmarksLoad = true;
 
   BrowserState state = const BrowserState();
 
-  /// Lightweight progress updates — does not trigger full [onStateChanged].
   final ValueNotifier<int> progressNotifier = ValueNotifier(0);
 
   void Function(BrowserState state)? onStateChanged;
@@ -59,7 +57,15 @@ class BrowserController {
       return;
     }
 
-    _emit(state.copyWith(currentUrl: normalized, isLoading: true));
+    _emit(
+      state.copyWith(
+        currentUrl: normalized,
+        isLoading: true,
+        progress: 0,
+      ),
+    );
+    progressNotifier.value = 0;
+
     await controller.loadUrl(
       urlRequest: URLRequest(url: WebUri(normalized)),
     );
@@ -130,6 +136,10 @@ class BrowserController {
     }
 
     final url = (await controller.getUrl())?.toString() ?? state.currentUrl;
+    if (_isBookmarksPageUrl(url)) {
+      return;
+    }
+
     final title = await controller.getTitle() ?? state.title;
     final canGoBack = await controller.canGoBack();
     final canGoForward = await controller.canGoForward();
@@ -145,8 +155,12 @@ class BrowserController {
   }
 
   void onLoadStart(WebUri? url) {
-    final nextUrl = url?.toString() ?? state.currentUrl;
-    if (isBookmarksHomeUrl(state.currentUrl) || _isBookmarksPageUrl(nextUrl)) {
+    final nextUrl = url?.toString() ?? '';
+    if (_isAboutBlank(nextUrl)) {
+      return;
+    }
+
+    if (_isBookmarksPageUrl(nextUrl)) {
       _emit(
         state.copyWith(
           currentUrl: BrowserSettings.bookmarksHomeUrl,
@@ -171,9 +185,8 @@ class BrowserController {
 
   Future<void> onLoadStop(WebUri? url) async {
     final urlString = url?.toString() ?? '';
-    if (_pendingInitialBookmarksLoad && _isAboutBlank(urlString)) {
-      _pendingInitialBookmarksLoad = false;
-      await loadBookmarksHome();
+
+    if (_isAboutBlank(urlString)) {
       return;
     }
 
@@ -201,27 +214,36 @@ class BrowserController {
     if (progressNotifier.value != progress) {
       progressNotifier.value = progress;
     }
+    final loading = progress < 100;
+    if (state.progress == progress && state.isLoading == loading) {
+      return;
+    }
+    _emit(state.copyWith(progress: progress, isLoading: loading));
   }
 
   double _lastViewportWidth = 0;
   double _lastViewportHeight = 0;
 
   Future<void> syncViewport(double width, double height) async {
-    if (width <= 0 || height <= 0) {
+    if (width <= 0 || height <= 0 || _webViewController == null) {
       return;
     }
 
     _lastViewportWidth = width;
     _lastViewportHeight = height;
 
-    await _webViewController?.evaluateJavascript(
-      source:
-          'window.__cursorPad && window.__cursorPad.setNativeSize($width, $height);',
-    );
-    await _webViewController?.evaluateJavascript(
-      source:
-          'window.__cursorPadDesktop && window.__cursorPadDesktop.setViewportWidth(${settings.viewportWidth}, $width);',
-    );
+    try {
+      await _webViewController?.evaluateJavascript(
+        source:
+            'window.__cursorPad && window.__cursorPad.setNativeSize($width, $height);',
+      );
+      await _webViewController?.evaluateJavascript(
+        source:
+            'window.__cursorPadDesktop && window.__cursorPadDesktop.setViewportWidth(${settings.viewportWidth}, $width);',
+      );
+    } catch (_) {
+      // WebView may not be ready yet during platform view init.
+    }
   }
 
   Future<void> syncBridgeSize(double width, double height) async {
