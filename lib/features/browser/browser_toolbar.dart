@@ -7,20 +7,26 @@ class BrowserToolbar extends StatelessWidget {
     super.key,
     required this.state,
     required this.urlController,
+    required this.urlFocusNode,
     required this.onSubmit,
     required this.onBack,
     required this.onForward,
     required this.onReload,
     required this.onHome,
+    required this.onBookmark,
+    required this.isBookmarked,
   });
 
   final BrowserState state;
   final TextEditingController urlController;
+  final FocusNode urlFocusNode;
   final ValueChanged<String> onSubmit;
   final VoidCallback onBack;
   final VoidCallback onForward;
   final VoidCallback onReload;
   final VoidCallback onHome;
+  final VoidCallback onBookmark;
+  final bool isBookmarked;
 
   @override
   Widget build(BuildContext context) {
@@ -59,9 +65,15 @@ class BrowserToolbar extends StatelessWidget {
                 onPressed: onHome,
                 icon: const Icon(Icons.home),
               ),
+              IconButton(
+                tooltip: '收藏当前页面',
+                onPressed: onBookmark,
+                icon: Icon(isBookmarked ? Icons.star : Icons.star_border),
+              ),
               Expanded(
                 child: TextField(
                   controller: urlController,
+                  focusNode: urlFocusNode,
                   textInputAction: TextInputAction.go,
                   decoration: InputDecoration(
                     hintText: '输入网址',
