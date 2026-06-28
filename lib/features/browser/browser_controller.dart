@@ -1,20 +1,29 @@
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import '../bookmarks/bookmark_repository.dart';
+import '../bookmarks/bookmarks_html.dart';
 import '../../features/settings/browser_settings.dart';
 import 'browser_state.dart';
 
 class BrowserController {
-  BrowserController({BrowserSettings? settings})
-      : settings = settings ?? const BrowserSettings();
+  BrowserController({
+    BrowserSettings? settings,
+    BookmarkRepository? bookmarkRepository,
+  })  : settings = settings ?? const BrowserSettings(),
+        bookmarkRepository = bookmarkRepository ?? BookmarkRepository();
 
   final BrowserSettings settings;
+  final BookmarkRepository bookmarkRepository;
   InAppWebViewController? _webViewController;
 
   BrowserState state = const BrowserState();
 
   void Function(BrowserState state)? onStateChanged;
-
   InAppWebViewController? get webViewController => _webViewController;
+
+  static bool isBookmarksHomeUrl(String url) {
+    return url == BrowserSettings.bookmarksHomeUrl;
+  }
 
   void attach(InAppWebViewController controller) {
     _webViewController = controller;
@@ -26,19 +35,53 @@ class BrowserController {
   }
 
   Future<void> loadUrl(String url) async {
+    final normalized = _normalizeUrl(url);
+    if (isBookmarksHomeUrl(normalized)) {
+      await loadBookmarksHome();
+      return;
+    }
+
     final controller = _webViewController;
     if (controller == null) {
       return;
     }
 
-    final normalized = _normalizeUrl(url);
     _emit(state.copyWith(currentUrl: normalized, isLoading: true));
     await controller.loadUrl(
       urlRequest: URLRequest(url: WebUri(normalized)),
     );
   }
 
+  Future<void> loadBookmarksHome() async {
+    final controller = _webViewController;
+    if (controller == null) {
+      return;
+    }
+
+    final bookmarks = await bookmarkRepository.getAll();
+    final html = BookmarksHtml.generate(bookmarks);
+
+    _emit(
+      state.copyWith(
+        currentUrl: BrowserSettings.bookmarksHomeUrl,
+        title: '收藏夹',
+        isLoading: true,
+      ),
+    );
+
+    await controller.loadData(
+      data: html,
+      baseUrl: WebUri(BrowserSettings.bookmarksHomeUrl),
+      mimeType: 'text/html',
+      encoding: 'utf-8',
+    );
+  }
+
   Future<void> reload() async {
+    if (isBookmarksHomeUrl(state.currentUrl)) {
+      await loadBookmarksHome();
+      return;
+    }
     await _webViewController?.reload();
   }
 
@@ -60,6 +103,17 @@ class BrowserController {
       return;
     }
 
+    if (isBookmarksHomeUrl(state.currentUrl)) {
+      _emit(
+        state.copyWith(
+          title: '收藏夹',
+          canGoBack: await controller.canGoBack(),
+          canGoForward: await controller.canGoForward(),
+        ),
+      );
+      return;
+    }
+
     final url = (await controller.getUrl())?.toString() ?? state.currentUrl;
     final title = await controller.getTitle() ?? state.title;
     final canGoBack = await controller.canGoBack();
@@ -76,9 +130,22 @@ class BrowserController {
   }
 
   void onLoadStart(WebUri? url) {
+    final nextUrl = url?.toString() ?? state.currentUrl;
+    if (isBookmarksHomeUrl(nextUrl)) {
+      _emit(
+        state.copyWith(
+          currentUrl: BrowserSettings.bookmarksHomeUrl,
+          title: '收藏夹',
+          isLoading: true,
+          progress: 0,
+        ),
+      );
+      return;
+    }
+
     _emit(
       state.copyWith(
-        currentUrl: url?.toString() ?? state.currentUrl,
+        currentUrl: nextUrl,
         isLoading: true,
         progress: 0,
       ),
@@ -88,18 +155,36 @@ class BrowserController {
   Future<void> onLoadStop(WebUri? url) async {
     await updateNavigationState();
     _emit(state.copyWith(isLoading: false, progress: 100));
-    await _applyViewportWidth();
+    await syncViewport(_lastViewportWidth, _lastViewportHeight);
   }
 
   void onProgressChanged(int progress) {
     _emit(state.copyWith(progress: progress, isLoading: progress < 100));
   }
 
-  Future<void> syncBridgeSize(double width, double height) async {
+  double _lastViewportWidth = 0;
+  double _lastViewportHeight = 0;
+
+  Future<void> syncViewport(double width, double height) async {
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
+    _lastViewportWidth = width;
+    _lastViewportHeight = height;
+
     await _webViewController?.evaluateJavascript(
       source:
           'window.__cursorPad && window.__cursorPad.setNativeSize($width, $height);',
     );
+    await _webViewController?.evaluateJavascript(
+      source:
+          'window.__cursorPadDesktop && window.__cursorPadDesktop.setViewportWidth(${settings.viewportWidth}, $width);',
+    );
+  }
+
+  Future<void> syncBridgeSize(double width, double height) async {
+    await syncViewport(width, height);
   }
 
   Future<void> moveCursor(double x, double y) async {
@@ -127,11 +212,11 @@ class BrowserController {
     );
   }
 
-  Future<void> _applyViewportWidth() async {
-    await _webViewController?.evaluateJavascript(
-      source:
-          'window.__cursorPadDesktop && window.__cursorPadDesktop.setViewportWidth(${settings.viewportWidth});',
-    );
+  Future<void> handleDeleteBookmark(String id) async {
+    await bookmarkRepository.remove(id);
+    if (isBookmarksHomeUrl(state.currentUrl)) {
+      await loadBookmarksHome();
+    }
   }
 
   String _normalizeUrl(String input) {
@@ -139,7 +224,9 @@ class BrowserController {
     if (trimmed.isEmpty) {
       return settings.homeUrl;
     }
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    if (trimmed.startsWith('http://') ||
+        trimmed.startsWith('https://') ||
+        isBookmarksHomeUrl(trimmed)) {
       return trimmed;
     }
     return 'https://$trimmed';

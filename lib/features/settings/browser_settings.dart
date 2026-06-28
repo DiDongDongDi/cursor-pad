@@ -3,8 +3,10 @@ class BrowserSettings {
     this.viewportWidth = 1280,
     this.cursorSensitivity = 1.0,
     this.scrollSensitivity = 1.0,
-    this.homeUrl = 'https://www.google.com',
+    this.homeUrl = bookmarksHomeUrl,
   });
+
+  static const String bookmarksHomeUrl = 'cursorpad://bookmarks';
 
   final int viewportWidth;
   final double cursorSensitivity;

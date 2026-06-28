@@ -56,52 +56,65 @@ class _DesktopWebViewState extends State<DesktopWebView> {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           widget.onSizeChanged?.call(size);
-          widget.controller.syncBridgeSize(size.width, size.height);
+          widget.controller.syncViewport(size.width, size.height);
         });
 
-        return InAppWebView(
-          initialUrlRequest: URLRequest(
-            url: WebUri(widget.controller.settings.homeUrl),
-          ),
-          initialSettings: InAppWebViewSettings(
-            userAgent: DesktopUserAgent.chromeWindows,
-            javaScriptEnabled: true,
-            useWideViewPort: true,
-            loadWithOverviewMode: true,
-            supportZoom: true,
-            builtInZoomControls: false,
-            displayZoomControls: false,
-            disableHorizontalScroll: false,
-            disableVerticalScroll: false,
-            allowsInlineMediaPlayback: true,
-            mediaPlaybackRequiresUserGesture: false,
-          ),
-          initialUserScripts: UnmodifiableListView<UserScript>([
-            UserScript(
-              source: _desktopModeScript!,
-              injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+        return IgnorePointer(
+          ignoring: true,
+          child: InAppWebView(
+            initialUrlRequest: URLRequest(
+              url: WebUri('about:blank'),
             ),
-            UserScript(
-              source: _mouseBridgeScript!,
-              injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+            initialSettings: InAppWebViewSettings(
+              userAgent: DesktopUserAgent.chromeWindows,
+              javaScriptEnabled: true,
+              useWideViewPort: true,
+              loadWithOverviewMode: false,
+              supportZoom: false,
+              builtInZoomControls: false,
+              displayZoomControls: false,
+              disableHorizontalScroll: false,
+              disableVerticalScroll: false,
+              allowsInlineMediaPlayback: true,
+              mediaPlaybackRequiresUserGesture: false,
             ),
-          ]),
-          onWebViewCreated: (webViewController) {
-            widget.controller.attach(webViewController);
-            widget.onCreated();
-          },
-          onLoadStart: (controller, url) {
-            widget.controller.onLoadStart(url);
-          },
-          onLoadStop: (controller, url) async {
-            await widget.controller.onLoadStop(url);
-          },
-          onProgressChanged: (controller, progress) {
-            widget.controller.onProgressChanged(progress);
-          },
-          onTitleChanged: (controller, title) {
-            widget.controller.updateNavigationState();
-          },
+            initialUserScripts: UnmodifiableListView<UserScript>([
+              UserScript(
+                source: _desktopModeScript!,
+                injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+              ),
+              UserScript(
+                source: _mouseBridgeScript!,
+                injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+              ),
+            ]),
+            onWebViewCreated: (webViewController) {
+              webViewController.addJavaScriptHandler(
+                handlerName: 'deleteBookmark',
+                callback: (args) async {
+                  final id = args.isNotEmpty ? args.first?.toString() : null;
+                  if (id == null || id.isEmpty) {
+                    return;
+                  }
+                  await widget.controller.handleDeleteBookmark(id);
+                },
+              );
+              widget.controller.attach(webViewController);
+              widget.onCreated();
+            },
+            onLoadStart: (controller, url) {
+              widget.controller.onLoadStart(url);
+            },
+            onLoadStop: (controller, url) async {
+              await widget.controller.onLoadStop(url);
+            },
+            onProgressChanged: (controller, progress) {
+              widget.controller.onProgressChanged(progress);
+            },
+            onTitleChanged: (controller, title) {
+              widget.controller.updateNavigationState();
+            },
+          ),
         );
       },
     );
