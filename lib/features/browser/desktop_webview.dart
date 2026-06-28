@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
@@ -167,6 +168,19 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
         onTitleChanged: (controller, title) {
           if (!widget.controller.state.isLoading) {
             widget.controller.updateNavigationState();
+          }
+        },
+        onReceivedError: (controller, request, error) {
+          if (kDebugMode) {
+            debugPrint(
+              'WebView error: ${error.type} ${error.description} '
+              '(${request.url})',
+            );
+          }
+        },
+        onConsoleMessage: (controller, consoleMessage) {
+          if (kDebugMode && consoleMessage.messageLevel == ConsoleMessageLevel.ERROR) {
+            debugPrint('WebView console: ${consoleMessage.message}');
           }
         },
       ),

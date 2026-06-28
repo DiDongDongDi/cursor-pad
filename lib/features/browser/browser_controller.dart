@@ -49,21 +49,10 @@ class BrowserController {
 
   void attach(InAppWebViewController controller) {
     _webViewController = controller;
-    unawaited(_loadInitialBookmarksIfNeeded());
-  }
-
-  Future<void> _loadInitialBookmarksIfNeeded() async {
-    if (!_pendingInitialBookmarksLoad || _webViewController == null) {
-      return;
+    if (_pendingInitialBookmarksLoad) {
+      _pendingInitialBookmarksLoad = false;
+      unawaited(loadBookmarksHome());
     }
-
-    final url = (await _webViewController?.getUrl())?.toString() ?? '';
-    if (!_isAboutBlank(url)) {
-      return;
-    }
-
-    _pendingInitialBookmarksLoad = false;
-    await loadBookmarksHome();
   }
 
   void _emit(BrowserState next) {
