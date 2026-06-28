@@ -20,17 +20,19 @@ class BrowserScreen extends StatefulWidget {
 
 class _BrowserScreenState extends State<BrowserScreen>
     with WidgetsBindingObserver {
+  final GlobalKey<_BrowserWebViewLayerState> _webViewLayerKey =
+      GlobalKey<_BrowserWebViewLayerState>();
+
   late final BrowserController _browserController;
   late final TextEditingController _urlController;
   late final FocusNode _urlFocusNode;
   late final ToolbarVisibilityController _toolbarVisibility;
   late final ValueNotifier<Offset> _cursorPosition;
+  late final ValueNotifier<bool> _webViewReady;
+  late final ValueNotifier<bool> _isBookmarked;
   late CursorState _cursorState;
 
-  BrowserState _browserState = const BrowserState();
   Size _viewportSize = Size.zero;
-  bool _webViewReady = false;
-  bool _isBookmarked = false;
 
   @override
   void initState() {
@@ -44,9 +46,10 @@ class _BrowserScreenState extends State<BrowserScreen>
     _urlFocusNode = FocusNode();
     _urlFocusNode.addListener(_onUrlFocusChanged);
     _toolbarVisibility = ToolbarVisibilityController();
-    _toolbarVisibility.addListener(_onToolbarVisibilityChanged);
     _cursorState = CursorState(position: Offset.zero);
     _cursorPosition = ValueNotifier(Offset.zero);
+    _webViewReady = ValueNotifier(false);
+    _isBookmarked = ValueNotifier(false);
   }
 
   @override
@@ -54,10 +57,12 @@ class _BrowserScreenState extends State<BrowserScreen>
     WidgetsBinding.instance.removeObserver(this);
     _urlFocusNode.removeListener(_onUrlFocusChanged);
     _urlFocusNode.dispose();
-    _toolbarVisibility.removeListener(_onToolbarVisibilityChanged);
     _toolbarVisibility.dispose();
     _cursorPosition.dispose();
+    _webViewReady.dispose();
+    _isBookmarked.dispose();
     _urlController.dispose();
+    _browserController.dispose();
     super.dispose();
   }
 
@@ -77,10 +82,6 @@ class _BrowserScreenState extends State<BrowserScreen>
     } else {
       _toolbarVisibility.unpin();
     }
-  }
-
-  void _onToolbarVisibilityChanged() {
-    setState(() {});
   }
 
   void _handleViewportSizeChanged(Size size) {
@@ -111,14 +112,11 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    setState(() {
-      _browserState = state;
-      _isBookmarked = bookmarked;
-      if (state.currentUrl.isNotEmpty &&
-          _urlController.text != state.currentUrl) {
-        _urlController.text = state.currentUrl;
-      }
-    });
+    _isBookmarked.value = bookmarked;
+    if (state.currentUrl.isNotEmpty &&
+        _urlController.text != state.currentUrl) {
+      _urlController.text = state.currentUrl;
+    }
 
     if (state.isLoading) {
       _toolbarVisibility.forceShow();
@@ -137,10 +135,20 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _syncCursorToPage() async {
-    if (!_webViewReady) {
+    if (!_webViewReady.value) {
       return;
     }
     await _browserController.moveCursor(
+      _cursorState.position.dx,
+      _cursorState.position.dy,
+    );
+  }
+
+  Future<void> _syncCursorToPageImmediate() async {
+    if (!_webViewReady.value) {
+      return;
+    }
+    await _browserController.moveCursorImmediate(
       _cursorState.position.dx,
       _cursorState.position.dy,
     );
@@ -157,17 +165,17 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _onTap() async {
-    await _syncCursorToPage();
+    await _syncCursorToPageImmediate();
     await _browserController.click();
   }
 
   Future<void> _onDoubleTap() async {
-    await _syncCursorToPage();
+    await _syncCursorToPageImmediate();
     await _browserController.doubleClick();
   }
 
   Future<void> _onLongPress() async {
-    await _syncCursorToPage();
+    await _syncCursorToPageImmediate();
     await _browserController.click(button: 2);
   }
 
@@ -176,14 +184,16 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _onBookmarkPressed() async {
-    final currentUrl = _browserState.currentUrl;
+    final currentUrl = _browserController.state.currentUrl;
     if (currentUrl.isEmpty ||
         BrowserController.isBookmarksHomeUrl(currentUrl)) {
       return;
     }
 
     final titleController = TextEditingController(
-      text: _browserState.title.isNotEmpty ? _browserState.title : currentUrl,
+      text: _browserController.state.title.isNotEmpty
+          ? _browserController.state.title
+          : currentUrl,
     );
 
     final saved = await showDialog<bool>(
@@ -233,100 +243,162 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    setState(() {
-      _isBookmarked = true;
-    });
+    _isBookmarked.value = true;
 
-    if (BrowserController.isBookmarksHomeUrl(_browserState.currentUrl)) {
+    if (BrowserController.isBookmarksHomeUrl(
+      _browserController.state.currentUrl,
+    )) {
       await _browserController.loadBookmarksHome();
     }
   }
 
+  void _onWebViewCreated() {
+    _webViewReady.value = true;
+    _centerCursor();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final toolbarVisible = _toolbarVisibility.visible;
-
     return Scaffold(
       body: Stack(
         children: [
-          Positioned.fill(
-            child: TouchpadDetector(
-              sensitivity: _browserController.settings.cursorSensitivity,
-              scrollSensitivity: _browserController.settings.scrollSensitivity,
-              onMove: _onMove,
-              onTap: _onTap,
-              onDoubleTap: _onDoubleTap,
-              onLongPress: _onLongPress,
-              onScroll: _onScroll,
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: DesktopWebView(
-                      key: const ValueKey('desktop-webview'),
-                      controller: _browserController,
-                      onCreated: _onWebViewCreated,
-                      onSizeChanged: _handleViewportSizeChanged,
-                    ),
-                  ),
-                  ValueListenableBuilder<int>(
-                    valueListenable: _browserController.progressNotifier,
-                    builder: (context, progress, _) {
-                      if (progress >= 100 || progress <= 0) {
-                        return const SizedBox.shrink();
-                      }
-                      return const Positioned(
-                        left: 0,
-                        right: 0,
-                        top: 0,
-                        child: LinearProgressIndicator(minHeight: 2),
-                      );
-                    },
-                  ),
-                  ValueListenableBuilder<Offset>(
-                    valueListenable: _cursorPosition,
-                    builder: (context, position, _) {
-                      return CursorOverlay(
-                        position: position,
-                        visible: _webViewReady,
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
+          _BrowserWebViewLayer(
+            key: _webViewLayerKey,
+            browserController: _browserController,
+            cursorPosition: _cursorPosition,
+            webViewReady: _webViewReady,
+            onCreated: _onWebViewCreated,
+            onSizeChanged: _handleViewportSizeChanged,
+            onMove: _onMove,
+            onTap: _onTap,
+            onDoubleTap: _onDoubleTap,
+            onLongPress: _onLongPress,
+            onScroll: _onScroll,
           ),
-          AnimatedSlide(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            offset: toolbarVisible ? Offset.zero : const Offset(0, -1),
-            child: BrowserToolbar(
-              state: _browserState,
-              urlController: _urlController,
-              urlFocusNode: _urlFocusNode,
-              onSubmit: _browserController.loadUrl,
-              onBack: _browserController.goBack,
-              onForward: _browserController.goForward,
-              onReload: _browserController.reload,
-              onHome: () => _browserController.loadUrl(
-                BrowserSettings.bookmarksHomeUrl,
-              ),
-              onBookmark: _onBookmarkPressed,
-              isBookmarked: _isBookmarked,
-            ),
+          ListenableBuilder(
+            listenable: _toolbarVisibility,
+            builder: (context, _) {
+              final toolbarVisible = _toolbarVisibility.visible;
+              return AnimatedSlide(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                offset: toolbarVisible ? Offset.zero : const Offset(0, -1),
+                child: ValueListenableBuilder<BrowserState>(
+                  valueListenable: _browserController.stateNotifier,
+                  builder: (context, state, _) {
+                    return ValueListenableBuilder<bool>(
+                      valueListenable: _isBookmarked,
+                      builder: (context, bookmarked, _) {
+                        return BrowserToolbar(
+                          state: state,
+                          urlController: _urlController,
+                          urlFocusNode: _urlFocusNode,
+                          onSubmit: _browserController.loadUrl,
+                          onBack: _browserController.goBack,
+                          onForward: _browserController.goForward,
+                          onReload: _browserController.reload,
+                          onHome: () => _browserController.loadUrl(
+                            BrowserSettings.bookmarksHomeUrl,
+                          ),
+                          onBookmark: _onBookmarkPressed,
+                          isBookmarked: bookmarked,
+                        );
+                      },
+                    );
+                  },
+                ),
+              );
+            },
           ),
         ],
       ),
     );
   }
+}
 
-  Future<void> _onWebViewCreated() async {
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _webViewReady = true;
-    });
-    await _browserController.loadBookmarksHome();
-    _centerCursor();
+class _BrowserWebViewLayer extends StatefulWidget {
+  const _BrowserWebViewLayer({
+    super.key,
+    required this.browserController,
+    required this.cursorPosition,
+    required this.webViewReady,
+    required this.onCreated,
+    required this.onSizeChanged,
+    required this.onMove,
+    required this.onTap,
+    required this.onDoubleTap,
+    required this.onLongPress,
+    required this.onScroll,
+  });
+
+  final BrowserController browserController;
+  final ValueNotifier<Offset> cursorPosition;
+  final ValueNotifier<bool> webViewReady;
+  final VoidCallback onCreated;
+  final ValueChanged<Size> onSizeChanged;
+  final ValueChanged<Offset> onMove;
+  final VoidCallback onTap;
+  final VoidCallback onDoubleTap;
+  final VoidCallback onLongPress;
+  final ValueChanged<Offset> onScroll;
+
+  @override
+  State<_BrowserWebViewLayer> createState() => _BrowserWebViewLayerState();
+}
+
+class _BrowserWebViewLayerState extends State<_BrowserWebViewLayer> {
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: TouchpadDetector(
+        sensitivity: widget.browserController.settings.cursorSensitivity,
+        scrollSensitivity: widget.browserController.settings.scrollSensitivity,
+        onMove: widget.onMove,
+        onTap: widget.onTap,
+        onDoubleTap: widget.onDoubleTap,
+        onLongPress: widget.onLongPress,
+        onScroll: widget.onScroll,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: DesktopWebView(
+                key: const ValueKey('desktop-webview'),
+                controller: widget.browserController,
+                onCreated: widget.onCreated,
+                onSizeChanged: widget.onSizeChanged,
+              ),
+            ),
+            ValueListenableBuilder<int>(
+              valueListenable: widget.browserController.progressNotifier,
+              builder: (context, progress, _) {
+                if (progress >= 100 || progress <= 0) {
+                  return const SizedBox.shrink();
+                }
+                return const Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  child: LinearProgressIndicator(minHeight: 2),
+                );
+              },
+            ),
+            ValueListenableBuilder<Offset>(
+              valueListenable: widget.cursorPosition,
+              builder: (context, position, _) {
+                return ValueListenableBuilder<bool>(
+                  valueListenable: widget.webViewReady,
+                  builder: (context, ready, _) {
+                    return CursorOverlay(
+                      position: position,
+                      visible: ready,
+                    );
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

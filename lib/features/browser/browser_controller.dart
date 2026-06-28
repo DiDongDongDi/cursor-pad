@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
@@ -20,6 +22,15 @@ class BrowserController {
   BrowserState state = const BrowserState();
 
   final ValueNotifier<int> progressNotifier = ValueNotifier(0);
+  final ValueNotifier<BrowserState> stateNotifier =
+      ValueNotifier(const BrowserState());
+
+  bool _pendingInitialBookmarksLoad = false;
+  Timer? _cursorSyncTimer;
+  double? _pendingCursorX;
+  double? _pendingCursorY;
+  double _lastSyncedWidth = 0;
+  double _lastSyncedHeight = 0;
 
   void Function(BrowserState state)? onStateChanged;
   InAppWebViewController? get webViewController => _webViewController;
@@ -38,10 +49,14 @@ class BrowserController {
 
   void attach(InAppWebViewController controller) {
     _webViewController = controller;
+    _pendingInitialBookmarksLoad = true;
   }
 
   void _emit(BrowserState next) {
     state = next;
+    if (stateNotifier.value != next) {
+      stateNotifier.value = next;
+    }
     onStateChanged?.call(next);
   }
 
@@ -187,6 +202,10 @@ class BrowserController {
     final urlString = url?.toString() ?? '';
 
     if (_isAboutBlank(urlString)) {
+      if (_pendingInitialBookmarksLoad) {
+        _pendingInitialBookmarksLoad = false;
+        await loadBookmarksHome();
+      }
       return;
     }
 
@@ -215,10 +234,10 @@ class BrowserController {
       progressNotifier.value = progress;
     }
     final loading = progress < 100;
-    if (state.progress == progress && state.isLoading == loading) {
+    if (state.isLoading == loading) {
       return;
     }
-    _emit(state.copyWith(progress: progress, isLoading: loading));
+    _emit(state.copyWith(isLoading: loading, progress: progress));
   }
 
   double _lastViewportWidth = 0;
@@ -228,9 +247,14 @@ class BrowserController {
     if (width <= 0 || height <= 0 || _webViewController == null) {
       return;
     }
+    if (width == _lastSyncedWidth && height == _lastSyncedHeight) {
+      return;
+    }
 
     _lastViewportWidth = width;
     _lastViewportHeight = height;
+    _lastSyncedWidth = width;
+    _lastSyncedHeight = height;
 
     try {
       await _webViewController?.evaluateJavascript(
@@ -251,9 +275,44 @@ class BrowserController {
   }
 
   Future<void> moveCursor(double x, double y) async {
-    await _webViewController?.evaluateJavascript(
-      source: 'window.__cursorPad && window.__cursorPad.moveTo($x, $y);',
-    );
+    _pendingCursorX = x;
+    _pendingCursorY = y;
+    if (_cursorSyncTimer != null) {
+      return;
+    }
+    _cursorSyncTimer = Timer(const Duration(milliseconds: 16), () async {
+      _cursorSyncTimer = null;
+      await _flushPendingCursor();
+    });
+  }
+
+  Future<void> moveCursorImmediate(double x, double y) async {
+    _pendingCursorX = x;
+    _pendingCursorY = y;
+    _cursorSyncTimer?.cancel();
+    _cursorSyncTimer = null;
+    await _flushPendingCursor();
+  }
+
+  Future<void> _flushPendingCursor() async {
+    final px = _pendingCursorX;
+    final py = _pendingCursorY;
+    if (px == null || py == null || _webViewController == null) {
+      return;
+    }
+    try {
+      await _webViewController?.evaluateJavascript(
+        source: 'window.__cursorPad && window.__cursorPad.moveTo($px, $py);',
+      );
+    } catch (_) {
+      // WebView may be reloading.
+    }
+  }
+
+  void dispose() {
+    _cursorSyncTimer?.cancel();
+    progressNotifier.dispose();
+    stateNotifier.dispose();
   }
 
   Future<void> click({int button = 0}) async {
