@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../bookmarks/bookmark_repository.dart';
@@ -19,11 +20,22 @@ class BrowserController {
 
   BrowserState state = const BrowserState();
 
+  /// Lightweight progress updates — does not trigger full [onStateChanged].
+  final ValueNotifier<int> progressNotifier = ValueNotifier(0);
+
   void Function(BrowserState state)? onStateChanged;
   InAppWebViewController? get webViewController => _webViewController;
 
   static bool isBookmarksHomeUrl(String url) {
     return url == BrowserSettings.bookmarksHomeUrl;
+  }
+
+  static bool _isAboutBlank(String url) {
+    return url.isEmpty || url.startsWith('about:blank');
+  }
+
+  static bool _isBookmarksPageUrl(String url) {
+    return isBookmarksHomeUrl(url) || url.contains('localhost/bookmarks');
   }
 
   void attach(InAppWebViewController controller) {
@@ -67,12 +79,14 @@ class BrowserController {
         currentUrl: BrowserSettings.bookmarksHomeUrl,
         title: '收藏夹',
         isLoading: true,
+        progress: 0,
       ),
     );
+    progressNotifier.value = 0;
 
     await controller.loadData(
       data: html,
-      baseUrl: WebUri(BrowserSettings.bookmarksHomeUrl),
+      baseUrl: WebUri('https://localhost/bookmarks'),
       mimeType: 'text/html',
       encoding: 'utf-8',
     );
@@ -132,7 +146,7 @@ class BrowserController {
 
   void onLoadStart(WebUri? url) {
     final nextUrl = url?.toString() ?? state.currentUrl;
-    if (isBookmarksHomeUrl(nextUrl)) {
+    if (isBookmarksHomeUrl(state.currentUrl) || _isBookmarksPageUrl(nextUrl)) {
       _emit(
         state.copyWith(
           currentUrl: BrowserSettings.bookmarksHomeUrl,
@@ -141,6 +155,7 @@ class BrowserController {
           progress: 0,
         ),
       );
+      progressNotifier.value = 0;
       return;
     }
 
@@ -151,24 +166,41 @@ class BrowserController {
         progress: 0,
       ),
     );
+    progressNotifier.value = 0;
   }
 
   Future<void> onLoadStop(WebUri? url) async {
     final urlString = url?.toString() ?? '';
-    if (_pendingInitialBookmarksLoad &&
-        (urlString == 'about:blank' || urlString.isEmpty)) {
+    if (_pendingInitialBookmarksLoad && _isAboutBlank(urlString)) {
       _pendingInitialBookmarksLoad = false;
       await loadBookmarksHome();
       return;
     }
 
+    if (_isBookmarksPageUrl(urlString)) {
+      progressNotifier.value = 100;
+      _emit(
+        state.copyWith(
+          currentUrl: BrowserSettings.bookmarksHomeUrl,
+          title: '收藏夹',
+          isLoading: false,
+          progress: 100,
+        ),
+      );
+      await syncViewport(_lastViewportWidth, _lastViewportHeight);
+      return;
+    }
+
     await updateNavigationState();
+    progressNotifier.value = 100;
     _emit(state.copyWith(isLoading: false, progress: 100));
     await syncViewport(_lastViewportWidth, _lastViewportHeight);
   }
 
   void onProgressChanged(int progress) {
-    _emit(state.copyWith(progress: progress, isLoading: progress < 100));
+    if (progressNotifier.value != progress) {
+      progressNotifier.value = progress;
+    }
   }
 
   double _lastViewportWidth = 0;

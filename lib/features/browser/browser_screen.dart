@@ -26,12 +26,14 @@ class _BrowserScreenState extends State<BrowserScreen>
   late final TextEditingController _urlController;
   late final FocusNode _urlFocusNode;
   late final ToolbarVisibilityController _toolbarVisibility;
+  late final ValueNotifier<Offset> _cursorPosition;
   late CursorState _cursorState;
 
   BrowserState _browserState = const BrowserState();
   Size _viewportSize = Size.zero;
   bool _webViewReady = false;
   bool _isBookmarked = false;
+  double _lastTopInset = -1;
 
   @override
   void initState() {
@@ -47,6 +49,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     _toolbarVisibility = ToolbarVisibilityController();
     _toolbarVisibility.addListener(_onToolbarVisibilityChanged);
     _cursorState = CursorState(position: Offset.zero);
+    _cursorPosition = ValueNotifier(Offset.zero);
   }
 
   @override
@@ -56,6 +59,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     _urlFocusNode.dispose();
     _toolbarVisibility.removeListener(_onToolbarVisibilityChanged);
     _toolbarVisibility.dispose();
+    _cursorPosition.dispose();
     _urlController.dispose();
     super.dispose();
   }
@@ -70,6 +74,12 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncViewportFromLayout();
+  }
+
   void _onUrlFocusChanged() {
     if (_urlFocusNode.hasFocus) {
       _toolbarVisibility.pin();
@@ -81,8 +91,43 @@ class _BrowserScreenState extends State<BrowserScreen>
   void _onToolbarVisibilityChanged() {
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _syncViewportAfterLayout();
+      _syncViewportFromLayout();
     });
+  }
+
+  double _toolbarHeight(BuildContext context) {
+    return MediaQuery.paddingOf(context).top + _toolbarContentHeight;
+  }
+
+  double _topInset(BuildContext context) {
+    return _toolbarVisibility.visible ? _toolbarHeight(context) : 0.0;
+  }
+
+  void _syncViewportFromLayout() {
+    final topInset = _topInset(context);
+    final screenSize = MediaQuery.sizeOf(context);
+    final contentSize = Size(
+      screenSize.width,
+      (screenSize.height - topInset).clamp(0, screenSize.height),
+    );
+
+    if (contentSize == _viewportSize && topInset == _lastTopInset) {
+      return;
+    }
+
+    _lastTopInset = topInset;
+    _viewportSize = contentSize;
+
+    if (_cursorState.position == Offset.zero && contentSize != Size.zero) {
+      _cursorState.centerIn(contentSize);
+      _cursorPosition.value = _cursorState.position;
+    } else if (contentSize != Size.zero) {
+      _cursorState.moveBy(Offset.zero, contentSize);
+      _cursorPosition.value = _cursorState.position;
+    }
+
+    _browserController.syncViewport(contentSize.width, contentSize.height);
+    _syncCursorToPage();
   }
 
   Future<void> _onBrowserStateChanged(BrowserState state) async {
@@ -115,17 +160,12 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
   }
 
-  double _toolbarHeight(BuildContext context) {
-    return MediaQuery.paddingOf(context).top + _toolbarContentHeight;
-  }
-
   void _centerCursor() {
     if (_viewportSize == Size.zero) {
       return;
     }
-    setState(() {
-      _cursorState.centerIn(_viewportSize);
-    });
+    _cursorState.centerIn(_viewportSize);
+    _cursorPosition.value = _cursorState.position;
     _syncCursorToPage();
   }
 
@@ -139,23 +179,12 @@ class _BrowserScreenState extends State<BrowserScreen>
     );
   }
 
-  void _syncViewportAfterLayout() {
-    if (_viewportSize == Size.zero) {
-      return;
-    }
-    _browserController.syncViewport(
-      _viewportSize.width,
-      _viewportSize.height,
-    );
-  }
-
   void _onMove(Offset delta) {
     if (_viewportSize == Size.zero) {
       return;
     }
-    setState(() {
-      _cursorState.moveBy(delta, _viewportSize);
-    });
+    _cursorState.moveBy(delta, _viewportSize);
+    _cursorPosition.value = _cursorState.position;
     _toolbarVisibility.onCursorMove(_cursorState.position.dy);
     _syncCursorToPage();
   }
@@ -249,7 +278,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   @override
   Widget build(BuildContext context) {
     final toolbarVisible = _toolbarVisibility.visible;
-    final topInset = toolbarVisible ? _toolbarHeight(context) : 0.0;
+    final topInset = _topInset(context);
 
     return Scaffold(
       body: Stack(
@@ -271,37 +300,33 @@ class _BrowserScreenState extends State<BrowserScreen>
                 children: [
                   Positioned.fill(
                     child: DesktopWebView(
+                      key: const ValueKey('desktop-webview'),
                       controller: _browserController,
-                      onCreated: () {
-                        setState(() {
-                          _webViewReady = true;
-                        });
-                      },
-                      onSizeChanged: (size) {
-                        if (_viewportSize == size) {
-                          return;
-                        }
-                        setState(() {
-                          _viewportSize = size;
-                          if (_cursorState.position == Offset.zero) {
-                            _cursorState.centerIn(size);
-                          } else {
-                            _cursorState.moveBy(Offset.zero, size);
-                          }
-                        });
-                      },
+                      onCreated: _onWebViewCreated,
                     ),
                   ),
-                  if (_browserState.isLoading && _browserState.progress < 100)
-                    const Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      child: LinearProgressIndicator(minHeight: 2),
-                    ),
-                  CursorOverlay(
-                    position: _cursorState.position,
-                    visible: _webViewReady,
+                  ValueListenableBuilder<int>(
+                    valueListenable: _browserController.progressNotifier,
+                    builder: (context, progress, _) {
+                      if (progress >= 100 || progress <= 0) {
+                        return const SizedBox.shrink();
+                      }
+                      return const Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        child: LinearProgressIndicator(minHeight: 2),
+                      );
+                    },
+                  ),
+                  ValueListenableBuilder<Offset>(
+                    valueListenable: _cursorPosition,
+                    builder: (context, position, _) {
+                      return CursorOverlay(
+                        position: position,
+                        visible: _webViewReady,
+                      );
+                    },
                   ),
                 ],
               ),
@@ -329,5 +354,15 @@ class _BrowserScreenState extends State<BrowserScreen>
         ],
       ),
     );
+  }
+
+  void _onWebViewCreated() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _webViewReady = true;
+    });
+    _syncViewportFromLayout();
   }
 }
