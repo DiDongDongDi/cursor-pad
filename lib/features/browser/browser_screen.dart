@@ -20,8 +20,7 @@ class BrowserScreen extends StatefulWidget {
 
 class _BrowserScreenState extends State<BrowserScreen>
     with WidgetsBindingObserver {
-  final GlobalKey<_BrowserWebViewLayerState> _webViewLayerKey =
-      GlobalKey<_BrowserWebViewLayerState>();
+  static const double _toolbarContentHeight = 52;
 
   late final BrowserController _browserController;
   late final TextEditingController _urlController;
@@ -33,6 +32,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   late CursorState _cursorState;
 
   Size _viewportSize = Size.zero;
+  double _lastTopInset = -1;
 
   @override
   void initState() {
@@ -46,6 +46,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     _urlFocusNode = FocusNode();
     _urlFocusNode.addListener(_onUrlFocusChanged);
     _toolbarVisibility = ToolbarVisibilityController();
+    _toolbarVisibility.addListener(_onToolbarVisibilityChanged);
     _cursorState = CursorState(position: Offset.zero);
     _cursorPosition = ValueNotifier(Offset.zero);
     _webViewReady = ValueNotifier(false);
@@ -57,6 +58,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     WidgetsBinding.instance.removeObserver(this);
     _urlFocusNode.removeListener(_onUrlFocusChanged);
     _urlFocusNode.dispose();
+    _toolbarVisibility.removeListener(_onToolbarVisibilityChanged);
     _toolbarVisibility.dispose();
     _cursorPosition.dispose();
     _webViewReady.dispose();
@@ -76,6 +78,12 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncViewportFromLayout();
+  }
+
   void _onUrlFocusChanged() {
     if (_urlFocusNode.hasFocus) {
       _toolbarVisibility.pin();
@@ -84,20 +92,46 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
   }
 
-  void _handleViewportSizeChanged(Size size) {
-    if (_viewportSize == size) {
+  void _onToolbarVisibilityChanged() {
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _syncViewportFromLayout();
+      }
+    });
+  }
+
+  double _topInset(BuildContext context) {
+    if (!_toolbarVisibility.visible) {
+      return 0;
+    }
+    // Toolbar already applies SafeArea; avoid inflated landscape padding.
+    return _toolbarContentHeight;
+  }
+
+  void _syncViewportFromLayout() {
+    final topInset = _topInset(context);
+    final screenSize = MediaQuery.sizeOf(context);
+    final contentSize = Size(
+      screenSize.width,
+      (screenSize.height - topInset).clamp(0, screenSize.height),
+    );
+
+    if (contentSize == _viewportSize && topInset == _lastTopInset) {
       return;
     }
-    _viewportSize = size;
 
-    if (_cursorState.position == Offset.zero && size != Size.zero) {
-      _cursorState.centerIn(size);
-    } else if (size != Size.zero) {
-      _cursorState.moveBy(Offset.zero, size);
+    _lastTopInset = topInset;
+    _viewportSize = contentSize;
+
+    if (_cursorState.position == Offset.zero && contentSize != Size.zero) {
+      _cursorState.centerIn(contentSize);
+    } else if (contentSize != Size.zero) {
+      _cursorState.moveBy(Offset.zero, contentSize);
     }
     _cursorPosition.value = _cursorState.position;
 
-    _browserController.syncViewport(size.width, size.height);
+    _browserController.syncViewport(contentSize.width, contentSize.height);
     _syncCursorToPage();
   }
 
@@ -254,31 +288,71 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   void _onWebViewCreated() {
     _webViewReady.value = true;
+    _syncViewportFromLayout();
     _centerCursor();
   }
 
   @override
   Widget build(BuildContext context) {
+    final toolbarVisible = _toolbarVisibility.visible;
+
     return Scaffold(
       body: Stack(
         children: [
-          _BrowserWebViewLayer(
-            key: _webViewLayerKey,
-            browserController: _browserController,
-            cursorPosition: _cursorPosition,
-            webViewReady: _webViewReady,
-            onCreated: _onWebViewCreated,
-            onSizeChanged: _handleViewportSizeChanged,
-            onMove: _onMove,
-            onTap: _onTap,
-            onDoubleTap: _onDoubleTap,
-            onLongPress: _onLongPress,
-            onScroll: _onScroll,
+          Positioned.fill(
+            child: TouchpadDetector(
+              sensitivity: _browserController.settings.cursorSensitivity,
+              scrollSensitivity: _browserController.settings.scrollSensitivity,
+              onMove: _onMove,
+              onTap: _onTap,
+              onDoubleTap: _onDoubleTap,
+              onLongPress: _onLongPress,
+              onScroll: _onScroll,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Positioned.fill(
+                    child: DesktopWebView(
+                      key: const ValueKey('desktop-webview'),
+                      controller: _browserController,
+                      onCreated: _onWebViewCreated,
+                    ),
+                  ),
+                  ValueListenableBuilder<int>(
+                    valueListenable: _browserController.progressNotifier,
+                    builder: (context, progress, _) {
+                      if (progress >= 100 || progress <= 0) {
+                        return const SizedBox.shrink();
+                      }
+                      return const Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        child: LinearProgressIndicator(minHeight: 2),
+                      );
+                    },
+                  ),
+                  ValueListenableBuilder<Offset>(
+                    valueListenable: _cursorPosition,
+                    builder: (context, position, _) {
+                      return ValueListenableBuilder<bool>(
+                        valueListenable: _webViewReady,
+                        builder: (context, ready, _) {
+                          return CursorOverlay(
+                            position: position,
+                            visible: ready,
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
           ),
           ListenableBuilder(
             listenable: _toolbarVisibility,
             builder: (context, _) {
-              final toolbarVisible = _toolbarVisibility.visible;
               return AnimatedSlide(
                 duration: const Duration(milliseconds: 200),
                 curve: Curves.easeOut,
@@ -311,93 +385,6 @@ class _BrowserScreenState extends State<BrowserScreen>
             },
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _BrowserWebViewLayer extends StatefulWidget {
-  const _BrowserWebViewLayer({
-    super.key,
-    required this.browserController,
-    required this.cursorPosition,
-    required this.webViewReady,
-    required this.onCreated,
-    required this.onSizeChanged,
-    required this.onMove,
-    required this.onTap,
-    required this.onDoubleTap,
-    required this.onLongPress,
-    required this.onScroll,
-  });
-
-  final BrowserController browserController;
-  final ValueNotifier<Offset> cursorPosition;
-  final ValueNotifier<bool> webViewReady;
-  final VoidCallback onCreated;
-  final ValueChanged<Size> onSizeChanged;
-  final ValueChanged<Offset> onMove;
-  final VoidCallback onTap;
-  final VoidCallback onDoubleTap;
-  final VoidCallback onLongPress;
-  final ValueChanged<Offset> onScroll;
-
-  @override
-  State<_BrowserWebViewLayer> createState() => _BrowserWebViewLayerState();
-}
-
-class _BrowserWebViewLayerState extends State<_BrowserWebViewLayer> {
-  @override
-  Widget build(BuildContext context) {
-    return Positioned.fill(
-      child: TouchpadDetector(
-        sensitivity: widget.browserController.settings.cursorSensitivity,
-        scrollSensitivity: widget.browserController.settings.scrollSensitivity,
-        onMove: widget.onMove,
-        onTap: widget.onTap,
-        onDoubleTap: widget.onDoubleTap,
-        onLongPress: widget.onLongPress,
-        onScroll: widget.onScroll,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: DesktopWebView(
-                key: const ValueKey('desktop-webview'),
-                controller: widget.browserController,
-                onCreated: widget.onCreated,
-                onSizeChanged: widget.onSizeChanged,
-              ),
-            ),
-            ValueListenableBuilder<int>(
-              valueListenable: widget.browserController.progressNotifier,
-              builder: (context, progress, _) {
-                if (progress >= 100 || progress <= 0) {
-                  return const SizedBox.shrink();
-                }
-                return const Positioned(
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  child: LinearProgressIndicator(minHeight: 2),
-                );
-              },
-            ),
-            ValueListenableBuilder<Offset>(
-              valueListenable: widget.cursorPosition,
-              builder: (context, position, _) {
-                return ValueListenableBuilder<bool>(
-                  valueListenable: widget.webViewReady,
-                  builder: (context, ready, _) {
-                    return CursorOverlay(
-                      position: position,
-                      visible: ready,
-                    );
-                  },
-                );
-              },
-            ),
-          ],
-        ),
       ),
     );
   }

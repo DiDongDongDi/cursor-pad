@@ -8,17 +8,17 @@ import '../../core/constants/desktop_user_agent.dart';
 import '../../core/injection/script_loader.dart';
 import 'browser_controller.dart';
 
+/// Hosts [InAppWebView] in an isolated subtree so parent rebuilds
+/// (progress, cursor, toolbar) do not recreate the platform view.
 class DesktopWebView extends StatefulWidget {
   const DesktopWebView({
     super.key,
     required this.controller,
     required this.onCreated,
-    this.onSizeChanged,
   });
 
   final BrowserController controller;
   final VoidCallback onCreated;
-  final ValueChanged<Size>? onSizeChanged;
 
   @override
   State<DesktopWebView> createState() => _DesktopWebViewState();
@@ -27,7 +27,9 @@ class DesktopWebView extends StatefulWidget {
 class _DesktopWebViewState extends State<DesktopWebView> {
   String? _desktopModeScript;
   String? _mouseBridgeScript;
-  Size? _lastReportedSize;
+  bool _hostMounted = false;
+  double _hostWidth = 1;
+  double _hostHeight = 1;
 
   @override
   void initState() {
@@ -47,12 +49,17 @@ class _DesktopWebViewState extends State<DesktopWebView> {
     });
   }
 
-  void _reportSizeIfChanged(Size size) {
-    if (_lastReportedSize == size) {
+  void _scheduleHostMount(double width, double height) {
+    if (_hostMounted) {
       return;
     }
-    _lastReportedSize = size;
-    widget.onSizeChanged?.call(size);
+    _hostWidth = width;
+    _hostHeight = height;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_hostMounted) {
+        setState(() => _hostMounted = true);
+      }
+    });
   }
 
   @override
@@ -63,22 +70,34 @@ class _DesktopWebViewState extends State<DesktopWebView> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final size = Size(constraints.maxWidth, constraints.maxHeight);
-        if (_lastReportedSize != size) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) {
-              return;
-            }
-            _reportSizeIfChanged(size);
-          });
+        final width = constraints.maxWidth;
+        final height = constraints.maxHeight;
+
+        if (width > 0 && height > 0) {
+          _hostWidth = width;
+          _hostHeight = height;
+          if (!_hostMounted) {
+            _scheduleHostMount(width, height);
+          }
         }
 
-        return _InAppWebViewHost(
-          key: const ValueKey('inapp-webview-host'),
-          controller: widget.controller,
-          desktopModeScript: _desktopModeScript!,
-          mouseBridgeScript: _mouseBridgeScript!,
-          onCreated: widget.onCreated,
+        if (!_hostMounted) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        // Keep the platform view mounted even if constraints briefly hit zero
+        // (e.g. IME animation), otherwise the controller is disposed while still
+        // referenced by [BrowserController].
+        return SizedBox(
+          width: _hostWidth,
+          height: _hostHeight,
+          child: _InAppWebViewHost(
+            key: const ValueKey('inapp-webview-host'),
+            controller: widget.controller,
+            desktopModeScript: _desktopModeScript!,
+            mouseBridgeScript: _mouseBridgeScript!,
+            onCreated: widget.onCreated,
+          ),
         );
       },
     );
@@ -107,6 +126,12 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
   bool _created = false;
 
   @override
+  void dispose() {
+    widget.controller.detachWebView();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return IgnorePointer(
       ignoring: true,
@@ -118,7 +143,7 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
           userAgent: DesktopUserAgent.chromeWindows,
           javaScriptEnabled: true,
           useWideViewPort: true,
-          loadWithOverviewMode: true,
+          loadWithOverviewMode: false,
           supportZoom: true,
           builtInZoomControls: false,
           displayZoomControls: false,
@@ -126,7 +151,7 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
           disableVerticalScroll: false,
           allowsInlineMediaPlayback: true,
           mediaPlaybackRequiresUserGesture: false,
-          useHybridComposition: true,
+          useHybridComposition: false,
           transparentBackground: false,
         ),
         initialUserScripts: UnmodifiableListView<UserScript>([
@@ -179,9 +204,18 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
           }
         },
         onConsoleMessage: (controller, consoleMessage) {
-          if (kDebugMode && consoleMessage.messageLevel == ConsoleMessageLevel.ERROR) {
+          if (kDebugMode &&
+              consoleMessage.messageLevel == ConsoleMessageLevel.ERROR) {
             debugPrint('WebView console: ${consoleMessage.message}');
           }
+        },
+        onRenderProcessGone: (controller, detail) {
+          if (kDebugMode) {
+            debugPrint(
+              'WebView render process gone (didCrash=${detail.didCrash})',
+            );
+          }
+          widget.controller.handleRenderProcessGone();
         },
       ),
     );

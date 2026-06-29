@@ -49,10 +49,27 @@ class BrowserController {
 
   void attach(InAppWebViewController controller) {
     _webViewController = controller;
-    if (_pendingInitialBookmarksLoad) {
-      _pendingInitialBookmarksLoad = false;
-      unawaited(loadBookmarksHome());
+  }
+
+  void detachWebView() {
+    _webViewController = null;
+  }
+
+  void handleRenderProcessGone() {
+    final controller = _webViewController;
+    if (controller == null) {
+      return;
     }
+
+    final url = state.currentUrl;
+    if (isBookmarksHomeUrl(url) || _isAboutBlank(url)) {
+      unawaited(loadBookmarksHome());
+      return;
+    }
+
+    unawaited(
+      controller.loadUrl(urlRequest: URLRequest(url: WebUri(url))),
+    );
   }
 
   void _emit(BrowserState next) {
@@ -84,9 +101,15 @@ class BrowserController {
     );
     progressNotifier.value = 0;
 
-    await controller.loadUrl(
-      urlRequest: URLRequest(url: WebUri(normalized)),
-    );
+    try {
+      await controller.loadUrl(
+        urlRequest: URLRequest(url: WebUri(normalized)),
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('loadUrl failed: $e');
+      }
+    }
   }
 
   Future<void> loadBookmarksHome() async {
