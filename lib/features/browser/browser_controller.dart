@@ -37,6 +37,7 @@ class BrowserController {
   double _lastSyncedHeight = 0;
 
   void Function(BrowserState state)? onStateChanged;
+  VoidCallback? onPageReady;
   VoidCallback? onWebViewNeedsRecreate;
   InAppWebViewController? get webViewController => _webViewController;
   String? get initialBookmarksHtml => _initialBookmarksHtml;
@@ -325,14 +326,16 @@ class BrowserController {
           progress: 100,
         ),
       );
-      await syncViewport(_lastViewportWidth, _lastViewportHeight);
+      await syncViewport(_lastViewportWidth, _lastViewportHeight, force: true);
+      onPageReady?.call();
       return;
     }
 
     await updateNavigationState();
     progressNotifier.value = 100;
     _emit(state.copyWith(isLoading: false, progress: 100));
-    await syncViewport(_lastViewportWidth, _lastViewportHeight);
+    await syncViewport(_lastViewportWidth, _lastViewportHeight, force: true);
+    onPageReady?.call();
   }
 
   void onProgressChanged(int progress) {
@@ -349,11 +352,17 @@ class BrowserController {
   double _lastViewportWidth = 0;
   double _lastViewportHeight = 0;
 
-  Future<void> syncViewport(double width, double height) async {
+  Future<void> syncViewport(
+    double width,
+    double height, {
+    bool force = false,
+  }) async {
     if (width <= 0 || height <= 0 || _webViewController == null) {
       return;
     }
-    if (width == _lastSyncedWidth && height == _lastSyncedHeight) {
+    if (!force &&
+        width == _lastSyncedWidth &&
+        height == _lastSyncedHeight) {
       return;
     }
 
