@@ -46,12 +46,13 @@ class ToolbarVisibilityController extends ChangeNotifier {
     }
   }
 
-  void onCursorMove(double y) {
+  void onCursorMove(double globalY, {required double toolbarHeight}) {
     if (_pinned) {
       return;
     }
 
-    if (y < edgeThreshold) {
+    final threshold = toolbarHeight + edgeThreshold;
+    if (globalY < threshold) {
       _hideTimer?.cancel();
       if (_visible || _showTimer != null) {
         return;

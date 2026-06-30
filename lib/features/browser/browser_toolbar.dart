@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'browser_state.dart';
+import 'toolbar_hit_tester.dart';
 
 class BrowserToolbar extends StatelessWidget {
   const BrowserToolbar({
@@ -8,6 +9,7 @@ class BrowserToolbar extends StatelessWidget {
     required this.state,
     required this.urlController,
     required this.urlFocusNode,
+    required this.hitTester,
     required this.onSubmit,
     required this.onBack,
     required this.onForward,
@@ -20,6 +22,7 @@ class BrowserToolbar extends StatelessWidget {
   final BrowserState state;
   final TextEditingController urlController;
   final FocusNode urlFocusNode;
+  final ToolbarHitTester hitTester;
   final ValueChanged<String> onSubmit;
   final VoidCallback onBack;
   final VoidCallback onForward;
@@ -30,67 +33,75 @@ class BrowserToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      elevation: 2,
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: SafeArea(
-        bottom: false,
-        child: SizedBox(
-          height: 52,
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: '后退',
-                onPressed: state.canGoBack ? onBack : null,
-                icon: const Icon(Icons.arrow_back),
-              ),
-              IconButton(
-                tooltip: '前进',
-                onPressed: state.canGoForward ? onForward : null,
-                icon: const Icon(Icons.arrow_forward),
-              ),
-              IconButton(
-                tooltip: '刷新',
-                onPressed: onReload,
-                icon: state.isLoading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh),
-              ),
-              IconButton(
-                tooltip: '主页',
-                onPressed: onHome,
-                icon: const Icon(Icons.home),
-              ),
-              IconButton(
-                tooltip: '收藏当前页面',
-                onPressed: onBookmark,
-                icon: Icon(isBookmarked ? Icons.star : Icons.star_border),
-              ),
-              Expanded(
-                child: TextField(
-                  controller: urlController,
-                  focusNode: urlFocusNode,
-                  textInputAction: TextInputAction.go,
-                  decoration: InputDecoration(
-                    hintText: '输入网址',
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                  ),
-                  onSubmitted: onSubmit,
+    return IgnorePointer(
+      child: Material(
+        elevation: 2,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: SafeArea(
+          bottom: false,
+          child: SizedBox(
+            height: 52,
+            child: Row(
+              children: [
+                IconButton(
+                  key: hitTester.backKey,
+                  tooltip: '后退',
+                  onPressed: state.canGoBack ? () {} : null,
+                  icon: const Icon(Icons.arrow_back),
                 ),
-              ),
-              const SizedBox(width: 8),
-            ],
+                IconButton(
+                  key: hitTester.forwardKey,
+                  tooltip: '前进',
+                  onPressed: state.canGoForward ? () {} : null,
+                  icon: const Icon(Icons.arrow_forward),
+                ),
+                IconButton(
+                  key: hitTester.reloadKey,
+                  tooltip: '刷新',
+                  onPressed: () {},
+                  icon: state.isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                ),
+                IconButton(
+                  key: hitTester.homeKey,
+                  tooltip: '主页',
+                  onPressed: () {},
+                  icon: const Icon(Icons.home),
+                ),
+                IconButton(
+                  key: hitTester.bookmarkKey,
+                  tooltip: '收藏当前页面',
+                  onPressed: () {},
+                  icon: Icon(isBookmarked ? Icons.star : Icons.star_border),
+                ),
+                Expanded(
+                  child: TextField(
+                    key: hitTester.urlFieldKey,
+                    controller: urlController,
+                    focusNode: urlFocusNode,
+                    textInputAction: TextInputAction.go,
+                    decoration: InputDecoration(
+                      hintText: '输入网址',
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                    ),
+                    onSubmitted: onSubmit,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ),
           ),
         ),
       ),
