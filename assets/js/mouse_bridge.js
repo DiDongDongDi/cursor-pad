@@ -74,19 +74,45 @@
     return el.closest(ACTIONABLE_SELECTOR) || el;
   }
 
+  function followAnchor(anchor) {
+    var href = anchor.getAttribute('href');
+    if (!href || href === '#') {
+      if (typeof anchor.click === 'function') {
+        anchor.click();
+      }
+      return;
+    }
+
+    var resolved = anchor.href;
+    var target = anchor.getAttribute('target');
+
+    if (target === '_blank') {
+      window.open(resolved, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    if (target && target !== '_self') {
+      window.open(resolved, target);
+      return;
+    }
+
+    window.location.href = resolved;
+  }
+
   function activateElement(el) {
     if (!el) {
       return;
     }
 
-    if (typeof el.click === 'function') {
-      el.click();
+    var anchor =
+      el.tagName === 'A' ? el : el.closest ? el.closest('a[href]') : null;
+    if (anchor) {
+      followAnchor(anchor);
       return;
     }
 
-    var anchor = el.closest ? el.closest('a[href]') : null;
-    if (anchor && anchor.href) {
-      window.location.href = anchor.href;
+    if (typeof el.click === 'function') {
+      el.click();
     }
   }
 
