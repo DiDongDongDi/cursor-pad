@@ -241,45 +241,20 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    final titleController = TextEditingController(
-      text: _browserController.state.title.isNotEmpty
-          ? _browserController.state.title
-          : currentUrl,
-    );
-
-    final saved = await showDialog<bool>(
+    final title = await showDialog<String>(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('收藏当前页面'),
-          content: TextField(
-            controller: titleController,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: '名称',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('保存'),
-            ),
-          ],
+        return _BookmarkTitleDialog(
+          initialTitle: _browserController.state.title.isNotEmpty
+              ? _browserController.state.title
+              : currentUrl,
         );
       },
     );
 
-    if (saved != true || !mounted) {
-      titleController.dispose();
+    if (title == null || !mounted) {
       return;
     }
-
-    final title = titleController.text.trim();
-    titleController.dispose();
 
     await _browserController.bookmarkRepository.add(
       Bookmark(
@@ -442,6 +417,55 @@ class _BrowserScreenState extends State<BrowserScreen>
           ),
         ],
       ),
+    );
+  }
+}
+
+class _BookmarkTitleDialog extends StatefulWidget {
+  const _BookmarkTitleDialog({required this.initialTitle});
+
+  final String initialTitle;
+
+  @override
+  State<_BookmarkTitleDialog> createState() => _BookmarkTitleDialogState();
+}
+
+class _BookmarkTitleDialogState extends State<_BookmarkTitleDialog> {
+  late final TextEditingController _titleController;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.initialTitle);
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('收藏当前页面'),
+      content: TextField(
+        controller: _titleController,
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: '名称',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_titleController.text.trim()),
+          child: const Text('保存'),
+        ),
+      ],
     );
   }
 }
