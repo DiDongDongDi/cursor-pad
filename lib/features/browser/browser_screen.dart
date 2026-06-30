@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../bookmarks/bookmark.dart';
@@ -30,9 +32,12 @@ class _BrowserScreenState extends State<BrowserScreen>
   late final ValueNotifier<bool> _webViewReady;
   late final ValueNotifier<bool> _isBookmarked;
   late CursorState _cursorState;
+  bool _initialHtmlReady = false;
+  String? _initialBookmarksHtml;
 
   Size _viewportSize = Size.zero;
   double _lastTopInset = -1;
+  int _webViewKey = 0;
 
   @override
   void initState() {
@@ -40,6 +45,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     WidgetsBinding.instance.addObserver(this);
     _browserController = BrowserController(settings: const BrowserSettings());
     _browserController.onStateChanged = _onBrowserStateChanged;
+    _browserController.onWebViewNeedsRecreate = _recreateWebView;
     _urlController = TextEditingController(
       text: _browserController.settings.homeUrl,
     );
@@ -51,6 +57,18 @@ class _BrowserScreenState extends State<BrowserScreen>
     _cursorPosition = ValueNotifier(Offset.zero);
     _webViewReady = ValueNotifier(false);
     _isBookmarked = ValueNotifier(false);
+    unawaited(_prepareInitialContent());
+  }
+
+  Future<void> _prepareInitialContent() async {
+    await _browserController.prepareInitialBookmarksHtml();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _initialHtmlReady = true;
+      _initialBookmarksHtml = _browserController.initialBookmarksHtml;
+    });
   }
 
   @override
@@ -101,27 +119,26 @@ class _BrowserScreenState extends State<BrowserScreen>
     });
   }
 
-  double _topInset(BuildContext context) {
+  double _toolbarHeight(BuildContext context) {
     if (!_toolbarVisibility.visible) {
       return 0;
     }
-    // Toolbar already applies SafeArea; avoid inflated landscape padding.
-    return _toolbarContentHeight;
+    return MediaQuery.paddingOf(context).top + _toolbarContentHeight;
   }
 
   void _syncViewportFromLayout() {
-    final topInset = _topInset(context);
+    final toolbarHeight = _toolbarHeight(context);
     final screenSize = MediaQuery.sizeOf(context);
     final contentSize = Size(
       screenSize.width,
-      (screenSize.height - topInset).clamp(0, screenSize.height),
+      (screenSize.height - toolbarHeight).clamp(0, screenSize.height),
     );
 
-    if (contentSize == _viewportSize && topInset == _lastTopInset) {
+    if (contentSize == _viewportSize && toolbarHeight == _lastTopInset) {
       return;
     }
 
-    _lastTopInset = topInset;
+    _lastTopInset = toolbarHeight;
     _viewportSize = contentSize;
 
     if (_cursorState.position == Offset.zero && contentSize != Size.zero) {
@@ -286,10 +303,41 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
   }
 
+  void _recreateWebView() {
+    if (!mounted) {
+      return;
+    }
+    _webViewReady.value = false;
+    setState(() => _webViewKey++);
+  }
+
+  Future<void> _onUrlSubmitted(String url) async {
+    _urlFocusNode.unfocus();
+    await _browserController.loadUrl(url);
+  }
+
   void _onWebViewCreated() {
     _webViewReady.value = true;
     _syncViewportFromLayout();
     _centerCursor();
+  }
+
+  void _onWebViewSizeChanged(Size size) {
+    if (size == _viewportSize || size == Size.zero) {
+      return;
+    }
+    _viewportSize = size;
+    _lastTopInset = MediaQuery.sizeOf(context).height - size.height;
+
+    if (_cursorState.position == Offset.zero) {
+      _cursorState.centerIn(size);
+    } else {
+      _cursorState.moveBy(Offset.zero, size);
+    }
+    _cursorPosition.value = _cursorState.position;
+
+    unawaited(_browserController.syncViewport(size.width, size.height));
+    unawaited(_syncCursorToPage());
   }
 
   @override
@@ -297,9 +345,44 @@ class _BrowserScreenState extends State<BrowserScreen>
     final toolbarVisible = _toolbarVisibility.visible;
 
     return Scaffold(
-      body: Stack(
+      body: Column(
         children: [
-          Positioned.fill(
+          ClipRect(
+            child: Align(
+              alignment: Alignment.topCenter,
+              heightFactor: toolbarVisible ? 1 : 0,
+              child: ListenableBuilder(
+                listenable: _toolbarVisibility,
+                builder: (context, _) {
+                  return ValueListenableBuilder<BrowserState>(
+                    valueListenable: _browserController.stateNotifier,
+                    builder: (context, state, _) {
+                      return ValueListenableBuilder<bool>(
+                        valueListenable: _isBookmarked,
+                        builder: (context, bookmarked, _) {
+                          return BrowserToolbar(
+                            state: state,
+                            urlController: _urlController,
+                            urlFocusNode: _urlFocusNode,
+                            onSubmit: _onUrlSubmitted,
+                            onBack: _browserController.goBack,
+                            onForward: _browserController.goForward,
+                            onReload: _browserController.reload,
+                            onHome: () => _browserController.loadUrl(
+                              BrowserSettings.bookmarksHomeUrl,
+                            ),
+                            onBookmark: _onBookmarkPressed,
+                            isBookmarked: bookmarked,
+                          );
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+          Expanded(
             child: TouchpadDetector(
               sensitivity: _browserController.settings.cursorSensitivity,
               scrollSensitivity: _browserController.settings.scrollSensitivity,
@@ -312,11 +395,18 @@ class _BrowserScreenState extends State<BrowserScreen>
                 fit: StackFit.expand,
                 children: [
                   Positioned.fill(
-                    child: DesktopWebView(
-                      key: const ValueKey('desktop-webview'),
-                      controller: _browserController,
-                      onCreated: _onWebViewCreated,
-                    ),
+                    child: _initialHtmlReady || _webViewKey > 0
+                        ? DesktopWebView(
+                            key: ValueKey('desktop-webview-$_webViewKey'),
+                            hostKey: _webViewKey,
+                            controller: _browserController,
+                            initialHtml: _webViewKey == 0
+                                ? _initialBookmarksHtml
+                                : null,
+                            onCreated: _onWebViewCreated,
+                            onSizeChanged: _onWebViewSizeChanged,
+                          )
+                        : const Center(child: CircularProgressIndicator()),
                   ),
                   ValueListenableBuilder<int>(
                     valueListenable: _browserController.progressNotifier,
@@ -349,40 +439,6 @@ class _BrowserScreenState extends State<BrowserScreen>
                 ],
               ),
             ),
-          ),
-          ListenableBuilder(
-            listenable: _toolbarVisibility,
-            builder: (context, _) {
-              return AnimatedSlide(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                offset: toolbarVisible ? Offset.zero : const Offset(0, -1),
-                child: ValueListenableBuilder<BrowserState>(
-                  valueListenable: _browserController.stateNotifier,
-                  builder: (context, state, _) {
-                    return ValueListenableBuilder<bool>(
-                      valueListenable: _isBookmarked,
-                      builder: (context, bookmarked, _) {
-                        return BrowserToolbar(
-                          state: state,
-                          urlController: _urlController,
-                          urlFocusNode: _urlFocusNode,
-                          onSubmit: _browserController.loadUrl,
-                          onBack: _browserController.goBack,
-                          onForward: _browserController.goForward,
-                          onReload: _browserController.reload,
-                          onHome: () => _browserController.loadUrl(
-                            BrowserSettings.bookmarksHomeUrl,
-                          ),
-                          onBookmark: _onBookmarkPressed,
-                          isBookmarked: bookmarked,
-                        );
-                      },
-                    );
-                  },
-                ),
-              );
-            },
           ),
         ],
       ),

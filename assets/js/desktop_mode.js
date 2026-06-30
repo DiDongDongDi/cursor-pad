@@ -12,12 +12,16 @@
       document.head.appendChild(meta);
     }
     var scale = SCREEN_WIDTH / VIEWPORT_WIDTH;
-    meta.content =
+    var desired =
       'width=' +
       VIEWPORT_WIDTH +
       ', initial-scale=' +
       scale +
       ', user-scalable=no';
+    if (meta.content === desired) {
+      return;
+    }
+    meta.content = desired;
   }
 
   function patchNavigator() {
@@ -73,8 +77,16 @@
   }
 
   function installViewportGuard() {
+    var pending = false;
     var observer = new MutationObserver(function () {
-      ensureViewportMeta();
+      if (pending) {
+        return;
+      }
+      pending = true;
+      requestAnimationFrame(function () {
+        pending = false;
+        ensureViewportMeta();
+      });
     });
     observer.observe(document.documentElement, {
       childList: true,

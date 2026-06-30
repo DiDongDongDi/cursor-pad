@@ -15,10 +15,16 @@ class DesktopWebView extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onCreated,
+    this.initialHtml,
+    this.hostKey = 0,
+    this.onSizeChanged,
   });
 
   final BrowserController controller;
   final VoidCallback onCreated;
+  final String? initialHtml;
+  final int hostKey;
+  final ValueChanged<Size>? onSizeChanged;
 
   @override
   State<DesktopWebView> createState() => _DesktopWebViewState();
@@ -27,9 +33,7 @@ class DesktopWebView extends StatefulWidget {
 class _DesktopWebViewState extends State<DesktopWebView> {
   String? _desktopModeScript;
   String? _mouseBridgeScript;
-  bool _hostMounted = false;
-  double _hostWidth = 1;
-  double _hostHeight = 1;
+  Size? _lastReportedSize;
 
   @override
   void initState() {
@@ -49,19 +53,6 @@ class _DesktopWebViewState extends State<DesktopWebView> {
     });
   }
 
-  void _scheduleHostMount(double width, double height) {
-    if (_hostMounted) {
-      return;
-    }
-    _hostWidth = width;
-    _hostHeight = height;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !_hostMounted) {
-        setState(() => _hostMounted = true);
-      }
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_desktopModeScript == null || _mouseBridgeScript == null) {
@@ -73,29 +64,29 @@ class _DesktopWebViewState extends State<DesktopWebView> {
         final width = constraints.maxWidth;
         final height = constraints.maxHeight;
 
-        if (width > 0 && height > 0) {
-          _hostWidth = width;
-          _hostHeight = height;
-          if (!_hostMounted) {
-            _scheduleHostMount(width, height);
-          }
-        }
-
-        if (!_hostMounted) {
+        if (width <= 0 || height <= 0) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // Keep the platform view mounted even if constraints briefly hit zero
-        // (e.g. IME animation), otherwise the controller is disposed while still
-        // referenced by [BrowserController].
+        final size = Size(width, height);
+        if (_lastReportedSize != size) {
+          _lastReportedSize = size;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              widget.onSizeChanged?.call(size);
+            }
+          });
+        }
+
         return SizedBox(
-          width: _hostWidth,
-          height: _hostHeight,
+          width: width,
+          height: height,
           child: _InAppWebViewHost(
-            key: const ValueKey('inapp-webview-host'),
+            key: ValueKey('inapp-webview-host-${widget.hostKey}'),
             controller: widget.controller,
             desktopModeScript: _desktopModeScript!,
             mouseBridgeScript: _mouseBridgeScript!,
+            initialHtml: widget.initialHtml,
             onCreated: widget.onCreated,
           ),
         );
@@ -111,12 +102,14 @@ class _InAppWebViewHost extends StatefulWidget {
     required this.desktopModeScript,
     required this.mouseBridgeScript,
     required this.onCreated,
+    this.initialHtml,
   });
 
   final BrowserController controller;
   final String desktopModeScript;
   final String mouseBridgeScript;
   final VoidCallback onCreated;
+  final String? initialHtml;
 
   @override
   State<_InAppWebViewHost> createState() => _InAppWebViewHostState();
@@ -133,12 +126,23 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
 
   @override
   Widget build(BuildContext context) {
+    final initialHtml = widget.initialHtml;
+
     return IgnorePointer(
       ignoring: true,
       child: InAppWebView(
-        initialUrlRequest: URLRequest(
-          url: WebUri('about:blank'),
-        ),
+        initialUrlRequest: initialHtml == null
+            ? URLRequest(url: WebUri('about:blank'))
+            : null,
+        initialData: initialHtml == null
+            ? null
+            : InAppWebViewInitialData(
+                data: initialHtml,
+                mimeType: 'text/html',
+                encoding: 'utf-8',
+                baseUrl: WebUri('https://localhost/bookmarks'),
+                historyUrl: WebUri('https://localhost/bookmarks'),
+              ),
         initialSettings: InAppWebViewSettings(
           userAgent: DesktopUserAgent.chromeWindows,
           javaScriptEnabled: true,
@@ -151,7 +155,7 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
           disableVerticalScroll: false,
           allowsInlineMediaPlayback: true,
           mediaPlaybackRequiresUserGesture: false,
-          useHybridComposition: false,
+          useHybridComposition: true,
           transparentBackground: false,
         ),
         initialUserScripts: UnmodifiableListView<UserScript>([
@@ -175,7 +179,10 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
               await widget.controller.handleDeleteBookmark(id);
             },
           );
-          widget.controller.attach(webViewController);
+          widget.controller.attach(
+            webViewController,
+            skipInitialLoad: widget.initialHtml != null,
+          );
           if (!_created) {
             _created = true;
             widget.onCreated();

@@ -26,6 +26,10 @@ class BrowserController {
       ValueNotifier(const BrowserState());
 
   bool _pendingInitialBookmarksLoad = true;
+  String? _pendingNavigationUrl;
+  String? _initialBookmarksHtml;
+  int _recreateCount = 0;
+  DateTime? _lastRecreateAt;
   Timer? _cursorSyncTimer;
   double? _pendingCursorX;
   double? _pendingCursorY;
@@ -33,7 +37,17 @@ class BrowserController {
   double _lastSyncedHeight = 0;
 
   void Function(BrowserState state)? onStateChanged;
+  VoidCallback? onWebViewNeedsRecreate;
   InAppWebViewController? get webViewController => _webViewController;
+  String? get initialBookmarksHtml => _initialBookmarksHtml;
+
+  Future<void> prepareInitialBookmarksHtml() async {
+    if (_initialBookmarksHtml != null) {
+      return;
+    }
+    final bookmarks = await bookmarkRepository.getAll();
+    _initialBookmarksHtml = BookmarksHtml.generate(bookmarks);
+  }
 
   static bool isBookmarksHomeUrl(String url) {
     return url == BrowserSettings.bookmarksHomeUrl;
@@ -47,29 +61,93 @@ class BrowserController {
     return isBookmarksHomeUrl(url) || url.contains('localhost/bookmarks');
   }
 
-  void attach(InAppWebViewController controller) {
+  void attach(InAppWebViewController controller, {bool skipInitialLoad = false}) {
     _webViewController = controller;
+
+    final pending = _pendingNavigationUrl;
+    if (pending != null) {
+      _pendingNavigationUrl = null;
+      if (isBookmarksHomeUrl(pending) || _isAboutBlank(pending)) {
+        unawaited(loadBookmarksHome());
+      } else {
+        unawaited(loadUrl(pending));
+      }
+      return;
+    }
+
+    if (!skipInitialLoad) {
+      unawaited(_loadInitialBookmarksIfNeeded());
+      return;
+    }
+
+    _emit(
+      state.copyWith(
+        currentUrl: BrowserSettings.bookmarksHomeUrl,
+        title: '收藏夹',
+        isLoading: true,
+        progress: 0,
+      ),
+    );
+    progressNotifier.value = 0;
   }
 
   void detachWebView() {
     _webViewController = null;
   }
 
+  Future<void> _loadInitialBookmarksIfNeeded() async {
+    if (!_pendingInitialBookmarksLoad || _webViewController == null) {
+      return;
+    }
+
+    final url = (await _webViewController?.getUrl())?.toString() ?? '';
+    if (_isBookmarksPageUrl(url)) {
+      _pendingInitialBookmarksLoad = false;
+      progressNotifier.value = 100;
+      _emit(
+        state.copyWith(
+          currentUrl: BrowserSettings.bookmarksHomeUrl,
+          title: '收藏夹',
+          isLoading: false,
+          progress: 100,
+        ),
+      );
+      return;
+    }
+    if (!_isAboutBlank(url)) {
+      return;
+    }
+
+    _pendingInitialBookmarksLoad = false;
+    await loadBookmarksHome();
+  }
+
   void handleRenderProcessGone() {
-    final controller = _webViewController;
-    if (controller == null) {
+    final now = DateTime.now();
+    if (_lastRecreateAt != null &&
+        now.difference(_lastRecreateAt!) < const Duration(seconds: 2)) {
+      _recreateCount++;
+    } else {
+      _recreateCount = 1;
+    }
+    _lastRecreateAt = now;
+
+    if (_recreateCount > 5) {
+      if (kDebugMode) {
+        debugPrint('WebView recreate throttled after repeated crashes');
+      }
       return;
     }
 
     final url = state.currentUrl;
     if (isBookmarksHomeUrl(url) || _isAboutBlank(url)) {
-      unawaited(loadBookmarksHome());
-      return;
+      _pendingNavigationUrl = BrowserSettings.bookmarksHomeUrl;
+    } else {
+      _pendingNavigationUrl = url;
     }
 
-    unawaited(
-      controller.loadUrl(urlRequest: URLRequest(url: WebUri(url))),
-    );
+    detachWebView();
+    onWebViewNeedsRecreate?.call();
   }
 
   void _emit(BrowserState next) {
@@ -87,11 +165,6 @@ class BrowserController {
       return;
     }
 
-    final controller = _webViewController;
-    if (controller == null) {
-      return;
-    }
-
     _emit(
       state.copyWith(
         currentUrl: normalized,
@@ -100,6 +173,12 @@ class BrowserController {
       ),
     );
     progressNotifier.value = 0;
+
+    final controller = _webViewController;
+    if (controller == null) {
+      _pendingNavigationUrl = normalized;
+      return;
+    }
 
     try {
       await controller.loadUrl(
@@ -113,14 +192,6 @@ class BrowserController {
   }
 
   Future<void> loadBookmarksHome() async {
-    final controller = _webViewController;
-    if (controller == null) {
-      return;
-    }
-
-    final bookmarks = await bookmarkRepository.getAll();
-    final html = BookmarksHtml.generate(bookmarks);
-
     _emit(
       state.copyWith(
         currentUrl: BrowserSettings.bookmarksHomeUrl,
@@ -130,6 +201,15 @@ class BrowserController {
       ),
     );
     progressNotifier.value = 0;
+
+    final controller = _webViewController;
+    if (controller == null) {
+      _pendingNavigationUrl = BrowserSettings.bookmarksHomeUrl;
+      return;
+    }
+
+    final bookmarks = await bookmarkRepository.getAll();
+    final html = BookmarksHtml.generate(bookmarks);
 
     await controller.loadData(
       data: html,
