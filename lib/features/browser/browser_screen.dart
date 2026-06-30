@@ -45,6 +45,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     WidgetsBinding.instance.addObserver(this);
     _browserController = BrowserController(settings: const BrowserSettings());
     _browserController.onStateChanged = _onBrowserStateChanged;
+    _browserController.onPageReady = _onPageReady;
     _browserController.onWebViewNeedsRecreate = _recreateWebView;
     _urlController = TextEditingController(
       text: _browserController.settings.homeUrl,
@@ -203,6 +204,10 @@ class _BrowserScreenState extends State<BrowserScreen>
       _cursorState.position.dx,
       _cursorState.position.dy,
     );
+  }
+
+  void _onPageReady() {
+    unawaited(_syncCursorToPageImmediate());
   }
 
   void _onMove(Offset delta) {
