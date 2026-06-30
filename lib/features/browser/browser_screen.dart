@@ -8,6 +8,7 @@ import '../browser/browser_controller.dart';
 import '../browser/browser_state.dart';
 import '../browser/browser_toolbar.dart';
 import '../browser/desktop_webview.dart';
+import '../browser/toolbar_hit_tester.dart';
 import '../browser/toolbar_visibility.dart';
 import '../cursor/cursor_overlay.dart';
 import '../cursor/cursor_state.dart';
@@ -28,15 +29,17 @@ class _BrowserScreenState extends State<BrowserScreen>
   late final TextEditingController _urlController;
   late final FocusNode _urlFocusNode;
   late final ToolbarVisibilityController _toolbarVisibility;
+  late final ToolbarHitTester _toolbarHitTester;
   late final ValueNotifier<Offset> _cursorPosition;
   late final ValueNotifier<bool> _webViewReady;
   late final ValueNotifier<bool> _isBookmarked;
   late CursorState _cursorState;
+  final GlobalKey _bodyStackKey = GlobalKey();
   bool _initialHtmlReady = false;
   String? _initialBookmarksHtml;
 
   Size _viewportSize = Size.zero;
-  double _lastTopInset = -1;
+  double _lastToolbarHeight = -1;
   int _webViewKey = 0;
 
   @override
@@ -53,6 +56,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     _urlFocusNode.addListener(_onUrlFocusChanged);
     _toolbarVisibility = ToolbarVisibilityController();
     _toolbarVisibility.addListener(_onToolbarVisibilityChanged);
+    _toolbarHitTester = ToolbarHitTester();
     _cursorState = CursorState(position: Offset.zero);
     _cursorPosition = ValueNotifier(Offset.zero);
     _webViewReady = ValueNotifier(false);
@@ -126,6 +130,35 @@ class _BrowserScreenState extends State<BrowserScreen>
     return MediaQuery.paddingOf(context).top + _toolbarContentHeight;
   }
 
+  Size _cursorBounds(BuildContext context) {
+    final screenSize = MediaQuery.sizeOf(context);
+    final toolbarHeight = _toolbarHeight(context);
+    return Size(
+      screenSize.width,
+      toolbarHeight + _viewportSize.height,
+    );
+  }
+
+  Offset _webViewCursorPosition(BuildContext context) {
+    final toolbarHeight = _toolbarHeight(context);
+    return Offset(
+      _cursorState.position.dx,
+      (_cursorState.position.dy - toolbarHeight).clamp(0.0, _viewportSize.height),
+    );
+  }
+
+  Offset? _cursorGlobalPosition() {
+    final stackContext = _bodyStackKey.currentContext;
+    if (stackContext == null) {
+      return null;
+    }
+    final box = stackContext.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) {
+      return null;
+    }
+    return box.localToGlobal(_cursorState.position);
+  }
+
   void _syncViewportFromLayout() {
     final toolbarHeight = _toolbarHeight(context);
     final screenSize = MediaQuery.sizeOf(context);
@@ -134,17 +167,40 @@ class _BrowserScreenState extends State<BrowserScreen>
       (screenSize.height - toolbarHeight).clamp(0, screenSize.height),
     );
 
-    if (contentSize == _viewportSize && toolbarHeight == _lastTopInset) {
+    final oldToolbarHeight = _lastToolbarHeight;
+    final cursorBounds = Size(
+      screenSize.width,
+      toolbarHeight + contentSize.height,
+    );
+
+    if (contentSize == _viewportSize &&
+        toolbarHeight == _lastToolbarHeight &&
+        cursorBounds.height > 0) {
       return;
     }
 
-    _lastTopInset = toolbarHeight;
+    _lastToolbarHeight = toolbarHeight;
     _viewportSize = contentSize;
 
-    if (_cursorState.position == Offset.zero && contentSize != Size.zero) {
-      _cursorState.centerIn(contentSize);
-    } else if (contentSize != Size.zero) {
-      _cursorState.moveBy(Offset.zero, contentSize);
+    if (_cursorState.position == Offset.zero && cursorBounds != Size.zero) {
+      _cursorState.centerIn(cursorBounds);
+    } else if (cursorBounds != Size.zero) {
+      var pos = _cursorState.position;
+
+      if (toolbarHeight > oldToolbarHeight && oldToolbarHeight == 0) {
+        pos = Offset(pos.dx, pos.dy + toolbarHeight);
+      } else if (toolbarHeight == 0 && oldToolbarHeight > 0) {
+        if (pos.dy < oldToolbarHeight) {
+          pos = Offset(pos.dx, 0);
+        } else {
+          pos = Offset(pos.dx, pos.dy - oldToolbarHeight);
+        }
+      }
+
+      _cursorState.position = Offset(
+        pos.dx.clamp(0.0, cursorBounds.width),
+        pos.dy.clamp(0.0, cursorBounds.height),
+      );
     }
     _cursorPosition.value = _cursorState.position;
 
@@ -172,15 +228,19 @@ class _BrowserScreenState extends State<BrowserScreen>
     if (state.isLoading) {
       _toolbarVisibility.forceShow();
     } else if (!_urlFocusNode.hasFocus) {
-      _toolbarVisibility.onCursorMove(_cursorState.position.dy);
+      _toolbarVisibility.onCursorMove(
+        _cursorState.position.dy,
+        toolbarHeight: _toolbarHeight(context),
+      );
     }
   }
 
   void _centerCursor() {
-    if (_viewportSize == Size.zero) {
+    final bounds = _cursorBounds(context);
+    if (bounds == Size.zero) {
       return;
     }
-    _cursorState.centerIn(_viewportSize);
+    _cursorState.centerIn(bounds);
     _cursorPosition.value = _cursorState.position;
     _syncCursorToPage();
   }
@@ -189,43 +249,94 @@ class _BrowserScreenState extends State<BrowserScreen>
     if (!_webViewReady.value) {
       return;
     }
-    await _browserController.moveCursor(
-      _cursorState.position.dx,
-      _cursorState.position.dy,
-    );
+    final webViewPos = _webViewCursorPosition(context);
+    await _browserController.moveCursor(webViewPos.dx, webViewPos.dy);
   }
 
   Future<void> _syncCursorToPageImmediate() async {
     if (!_webViewReady.value) {
       return;
     }
-    await _browserController.moveCursorImmediate(
-      _cursorState.position.dx,
-      _cursorState.position.dy,
-    );
+    final webViewPos = _webViewCursorPosition(context);
+    await _browserController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
   }
 
   void _onMove(Offset delta) {
-    if (_viewportSize == Size.zero) {
+    final bounds = _cursorBounds(context);
+    if (bounds == Size.zero) {
       return;
     }
-    _cursorState.moveBy(delta, _viewportSize);
+    _cursorState.moveBy(delta, bounds);
     _cursorPosition.value = _cursorState.position;
-    _toolbarVisibility.onCursorMove(_cursorState.position.dy);
+    _toolbarVisibility.onCursorMove(
+      _cursorState.position.dy,
+      toolbarHeight: _toolbarHeight(context),
+    );
     _syncCursorToPage();
   }
 
+  bool _isCursorInToolbar(BuildContext context) {
+    if (!_toolbarVisibility.visible) {
+      return false;
+    }
+    return _cursorState.position.dy < _toolbarHeight(context);
+  }
+
+  Future<void> _handleToolbarTap() async {
+    final globalPos = _cursorGlobalPosition();
+    if (globalPos == null) {
+      return;
+    }
+
+    final target = _toolbarHitTester.hitTest(globalPos);
+    final state = _browserController.state;
+
+    switch (target) {
+      case ToolbarHitTarget.back:
+        if (state.canGoBack) {
+          await _browserController.goBack();
+        }
+      case ToolbarHitTarget.forward:
+        if (state.canGoForward) {
+          await _browserController.goForward();
+        }
+      case ToolbarHitTarget.reload:
+        await _browserController.reload();
+      case ToolbarHitTarget.home:
+        await _browserController.loadUrl(BrowserSettings.bookmarksHomeUrl);
+      case ToolbarHitTarget.bookmark:
+        await _onBookmarkPressed();
+      case ToolbarHitTarget.urlField:
+        _urlFocusNode.requestFocus();
+      case null:
+        break;
+    }
+  }
+
   Future<void> _onTap() async {
+    if (_isCursorInToolbar(context)) {
+      await _handleToolbarTap();
+      return;
+    }
+
     await _syncCursorToPageImmediate();
     await _browserController.click();
   }
 
   Future<void> _onDoubleTap() async {
+    if (_isCursorInToolbar(context)) {
+      return;
+    }
+
     await _syncCursorToPageImmediate();
     await _browserController.doubleClick();
   }
 
   Future<void> _onLongPress() async {
+    if (_isCursorInToolbar(context)) {
+      return;
+    }
+
     await _syncCursorToPageImmediate();
     await _browserController.click(button: 2);
   }
@@ -302,12 +413,13 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     _viewportSize = size;
-    _lastTopInset = MediaQuery.sizeOf(context).height - size.height;
+    _lastToolbarHeight = MediaQuery.sizeOf(context).height - size.height;
 
+    final bounds = _cursorBounds(context);
     if (_cursorState.position == Offset.zero) {
-      _cursorState.centerIn(size);
+      _cursorState.centerIn(bounds);
     } else {
-      _cursorState.moveBy(Offset.zero, size);
+      _cursorState.moveBy(Offset.zero, bounds);
     }
     _cursorPosition.value = _cursorState.position;
 
@@ -320,102 +432,111 @@ class _BrowserScreenState extends State<BrowserScreen>
     final toolbarVisible = _toolbarVisibility.visible;
 
     return Scaffold(
-      body: Column(
-        children: [
-          ClipRect(
-            child: Align(
-              alignment: Alignment.topCenter,
-              heightFactor: toolbarVisible ? 1 : 0,
-              child: ListenableBuilder(
-                listenable: _toolbarVisibility,
-                builder: (context, _) {
-                  return ValueListenableBuilder<BrowserState>(
-                    valueListenable: _browserController.stateNotifier,
-                    builder: (context, state, _) {
-                      return ValueListenableBuilder<bool>(
-                        valueListenable: _isBookmarked,
-                        builder: (context, bookmarked, _) {
-                          return BrowserToolbar(
-                            state: state,
-                            urlController: _urlController,
-                            urlFocusNode: _urlFocusNode,
-                            onSubmit: _onUrlSubmitted,
-                            onBack: _browserController.goBack,
-                            onForward: _browserController.goForward,
-                            onReload: _browserController.reload,
-                            onHome: () => _browserController.loadUrl(
-                              BrowserSettings.bookmarksHomeUrl,
-                            ),
-                            onBookmark: _onBookmarkPressed,
-                            isBookmarked: bookmarked,
+      body: TouchpadDetector(
+        sensitivity: _browserController.settings.cursorSensitivity,
+        scrollSensitivity: _browserController.settings.scrollSensitivity,
+        onMove: _onMove,
+        onTap: _onTap,
+        onDoubleTap: _onDoubleTap,
+        onLongPress: _onLongPress,
+        onScroll: _onScroll,
+        child: Stack(
+          key: _bodyStackKey,
+          fit: StackFit.expand,
+          children: [
+            Column(
+              children: [
+                ClipRect(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    heightFactor: toolbarVisible ? 1 : 0,
+                    child: ListenableBuilder(
+                      listenable: _toolbarVisibility,
+                      builder: (context, _) {
+                        return ValueListenableBuilder<BrowserState>(
+                          valueListenable: _browserController.stateNotifier,
+                          builder: (context, state, _) {
+                            return ValueListenableBuilder<bool>(
+                              valueListenable: _isBookmarked,
+                              builder: (context, bookmarked, _) {
+                                return BrowserToolbar(
+                                  state: state,
+                                  urlController: _urlController,
+                                  urlFocusNode: _urlFocusNode,
+                                  hitTester: _toolbarHitTester,
+                                  onSubmit: _onUrlSubmitted,
+                                  onBack: _browserController.goBack,
+                                  onForward: _browserController.goForward,
+                                  onReload: _browserController.reload,
+                                  onHome: () => _browserController.loadUrl(
+                                    BrowserSettings.bookmarksHomeUrl,
+                                  ),
+                                  onBookmark: _onBookmarkPressed,
+                                  isBookmarked: bookmarked,
+                                );
+                              },
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Positioned.fill(
+                        child: _initialHtmlReady || _webViewKey > 0
+                            ? DesktopWebView(
+                                key: ValueKey('desktop-webview-$_webViewKey'),
+                                hostKey: _webViewKey,
+                                controller: _browserController,
+                                initialHtml: _webViewKey == 0
+                                    ? _initialBookmarksHtml
+                                    : null,
+                                onCreated: _onWebViewCreated,
+                                onSizeChanged: _onWebViewSizeChanged,
+                              )
+                            : const Center(
+                                child: CircularProgressIndicator(),
+                              ),
+                      ),
+                      ValueListenableBuilder<int>(
+                        valueListenable: _browserController.progressNotifier,
+                        builder: (context, progress, _) {
+                          if (progress >= 100 || progress <= 0) {
+                            return const SizedBox.shrink();
+                          }
+                          return const Positioned(
+                            left: 0,
+                            right: 0,
+                            top: 0,
+                            child: LinearProgressIndicator(minHeight: 2),
                           );
                         },
-                      );
-                    },
-                  );
-                },
-              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ),
-          Expanded(
-            child: TouchpadDetector(
-              sensitivity: _browserController.settings.cursorSensitivity,
-              scrollSensitivity: _browserController.settings.scrollSensitivity,
-              onMove: _onMove,
-              onTap: _onTap,
-              onDoubleTap: _onDoubleTap,
-              onLongPress: _onLongPress,
-              onScroll: _onScroll,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Positioned.fill(
-                    child: _initialHtmlReady || _webViewKey > 0
-                        ? DesktopWebView(
-                            key: ValueKey('desktop-webview-$_webViewKey'),
-                            hostKey: _webViewKey,
-                            controller: _browserController,
-                            initialHtml: _webViewKey == 0
-                                ? _initialBookmarksHtml
-                                : null,
-                            onCreated: _onWebViewCreated,
-                            onSizeChanged: _onWebViewSizeChanged,
-                          )
-                        : const Center(child: CircularProgressIndicator()),
-                  ),
-                  ValueListenableBuilder<int>(
-                    valueListenable: _browserController.progressNotifier,
-                    builder: (context, progress, _) {
-                      if (progress >= 100 || progress <= 0) {
-                        return const SizedBox.shrink();
-                      }
-                      return const Positioned(
-                        left: 0,
-                        right: 0,
-                        top: 0,
-                        child: LinearProgressIndicator(minHeight: 2),
-                      );
-                    },
-                  ),
-                  ValueListenableBuilder<Offset>(
-                    valueListenable: _cursorPosition,
-                    builder: (context, position, _) {
-                      return ValueListenableBuilder<bool>(
-                        valueListenable: _webViewReady,
-                        builder: (context, ready, _) {
-                          return CursorOverlay(
-                            position: position,
-                            visible: ready,
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ],
-              ),
+            ValueListenableBuilder<Offset>(
+              valueListenable: _cursorPosition,
+              builder: (context, position, _) {
+                return ValueListenableBuilder<bool>(
+                  valueListenable: _webViewReady,
+                  builder: (context, ready, _) {
+                    return CursorOverlay(
+                      position: position,
+                      visible: ready,
+                    );
+                  },
+                );
+              },
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
