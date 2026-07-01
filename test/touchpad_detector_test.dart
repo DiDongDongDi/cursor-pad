@@ -255,6 +255,39 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets(
+      'two-finger scroll with larger spacing jitter does not trigger onPinch',
+      (tester) async {
+    final scrollDeltas = <Offset>[];
+    final pinchFactors = <double>[];
+
+    await tester.pumpWidget(
+      buildTouchpad(
+        onMove: (_) {},
+        onScroll: scrollDeltas.add,
+        onPinch: pinchFactors.add,
+      ),
+    );
+
+    final finger1 = await tester.createGesture();
+    final finger2 = await tester.createGesture();
+
+    await finger1.down(const Offset(100, 100));
+    await finger2.down(const Offset(200, 100));
+    await tester.pump();
+
+    await finger1.moveBy(const Offset(-6, 60));
+    await finger2.moveBy(const Offset(6, 60));
+    await tester.pump();
+
+    expect(scrollDeltas, isNotEmpty);
+    expect(pinchFactors, isEmpty);
+
+    await finger1.up();
+    await finger2.up();
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('small spread during slop phase does not trigger onPinch',
       (tester) async {
     final pinchFactors = <double>[];
