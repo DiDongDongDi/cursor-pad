@@ -203,12 +203,16 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
           }
         },
         onReceivedError: (controller, request, error) {
-          if (kDebugMode) {
-            debugPrint(
-              'WebView error: ${error.type} ${error.description} '
-              '(${request.url})',
-            );
+          if (!kDebugMode) {
+            return;
           }
+          final url = request.url?.toString() ?? '';
+          if (url.contains('localhost/favicon.ico')) {
+            return;
+          }
+          debugPrint(
+            'WebView error: ${error.type} ${error.description} ($url)',
+          );
         },
         onConsoleMessage: (controller, consoleMessage) {
           if (kDebugMode &&

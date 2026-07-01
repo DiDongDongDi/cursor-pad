@@ -13,6 +13,7 @@ class BookmarksHtml {
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <link rel="icon" href="data:,">
   <title>收藏夹</title>
   <style>
     * { box-sizing: border-box; }
