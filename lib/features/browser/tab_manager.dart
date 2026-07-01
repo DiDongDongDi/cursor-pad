@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../bookmarks/bookmark_repository.dart';
 import '../settings/browser_settings.dart';
 import 'browser_controller.dart';
 import 'browser_tab.dart';
@@ -10,11 +11,14 @@ class TabManager extends ChangeNotifier {
   TabManager({
     BrowserSettings? settings,
     this.maxTabs = 20,
-  }) : _settings = settings ?? const BrowserSettings() {
+    BookmarkRepository? bookmarkRepository,
+  })  : _settings = settings ?? const BrowserSettings(),
+        _bookmarkRepository = bookmarkRepository {
     _tabs.add(_createTabInstance(prepareInitialHtml: true));
   }
 
   final BrowserSettings _settings;
+  final BookmarkRepository? _bookmarkRepository;
   final int maxTabs;
   final List<BrowserTab> _tabs = [];
   int _activeIndex = 0;
@@ -44,7 +48,10 @@ class TabManager extends ChangeNotifier {
     final id = DateTime.now().microsecondsSinceEpoch.toString();
     return BrowserTab(
       id: id,
-      controller: BrowserController(settings: _settings),
+      controller: BrowserController(
+        settings: _settings,
+        bookmarkRepository: _bookmarkRepository,
+      ),
       initialBookmarksHtml: prepareInitialHtml ? _initialBookmarksHtml : null,
     );
   }

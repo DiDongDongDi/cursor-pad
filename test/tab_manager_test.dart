@@ -1,11 +1,38 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:cursor_pad/features/bookmarks/bookmark_file_storage.dart';
+import 'package:cursor_pad/features/bookmarks/bookmark_repository.dart';
 import 'package:cursor_pad/features/browser/tab_manager.dart';
 import 'package:cursor_pad/features/settings/browser_settings.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  late Directory tempDir;
+
+  setUp(() async {
+    tempDir = await Directory.systemTemp.createTemp('cursor_pad_tab_manager_test');
+  });
+
+  tearDown(() async {
+    if (await tempDir.exists()) {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  Future<TabManager> createManager() async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    return TabManager(
+      bookmarkRepository: BookmarkRepository(
+        prefs: prefs,
+        fileStorage: BookmarkFileStorage(baseDirectory: tempDir),
+      ),
+    );
+  }
 
   group('TabManager', () {
     test('starts with one tab', () {
@@ -91,8 +118,7 @@ void main() {
     });
 
     test('prepareInitialContent marks html ready', () async {
-      SharedPreferences.setMockInitialValues({});
-      final manager = TabManager();
+      final manager = await createManager();
       addTearDown(manager.dispose);
 
       expect(manager.initialHtmlReady, isFalse);
