@@ -6,9 +6,9 @@
   var SCREEN_WIDTH = 1280;
   var _heightRatio = null;
   var BASE_SCALE = 1;
-  var USER_SCALE = 1;
   var MIN_USER_SCALE = 0.5;
   var MAX_USER_SCALE = 3;
+  var USER_SCALE = MIN_USER_SCALE;
   var LAYOUT_STYLE_ID = 'cursorpad-desktop-layout';
   var TOUCH_STYLE_ID = 'cursorpad-touch-patch';
 
@@ -99,7 +99,7 @@
   }
 
   function resetUserScale() {
-    USER_SCALE = 1;
+    USER_SCALE = MIN_USER_SCALE;
     ensureViewportMeta();
   }
 
