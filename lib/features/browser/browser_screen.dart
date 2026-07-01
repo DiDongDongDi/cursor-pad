@@ -8,11 +8,11 @@ import '../settings/browser_settings.dart';
 import '../browser/browser_controller.dart';
 import '../browser/browser_state.dart';
 import '../browser/browser_tab.dart';
-import '../browser/browser_tab_bar.dart';
+import '../browser/browser_tab_switcher.dart';
 import '../browser/browser_toolbar.dart';
 import '../browser/desktop_webview.dart';
-import '../browser/tab_bar_hit_tester.dart';
 import '../browser/tab_manager.dart';
+import '../browser/tab_switcher_hit_tester.dart';
 import '../browser/toolbar_hit_tester.dart';
 import '../browser/toolbar_visibility.dart';
 import '../cursor/cursor_overlay.dart';
@@ -35,7 +35,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   late final FocusNode _urlFocusNode;
   late final ToolbarVisibilityController _toolbarVisibility;
   late final ToolbarHitTester _toolbarHitTester;
-  late final TabBarHitTester _tabBarHitTester;
+  late final TabSwitcherHitTester _tabSwitcherHitTester;
   late final ValueNotifier<Offset> _cursorPosition;
   late final ValueNotifier<bool> _isBookmarked;
   late CursorState _cursorState;
@@ -44,6 +44,7 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   Size _viewportSize = Size.zero;
   double _lastChromeHeight = -1;
+  bool _tabSwitcherOpen = false;
 
   BrowserTab get _activeTab => _tabManager.activeTab;
   BrowserController get _activeController => _activeTab.controller;
@@ -62,7 +63,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     _toolbarVisibility = ToolbarVisibilityController();
     _toolbarVisibility.addListener(_onToolbarVisibilityChanged);
     _toolbarHitTester = ToolbarHitTester();
-    _tabBarHitTester = TabBarHitTester();
+    _tabSwitcherHitTester = TabSwitcherHitTester();
     _cursorState = _activeTab.cursorState;
     _cursorPosition = ValueNotifier(_cursorState.position);
     _isBookmarked = ValueNotifier(false);
@@ -185,6 +186,9 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   void _onToolbarVisibilityChanged() {
+    if (!_toolbarVisibility.visible && _tabSwitcherOpen) {
+      _tabSwitcherOpen = false;
+    }
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -197,9 +201,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     if (!_toolbarVisibility.visible) {
       return 0;
     }
-    return MediaQuery.paddingOf(context).top +
-        BrowserTabBar.height +
-        _toolbarContentHeight;
+    return MediaQuery.paddingOf(context).top + _toolbarContentHeight;
   }
 
   Size _cursorBounds(BuildContext context) {
@@ -373,9 +375,16 @@ class _BrowserScreenState extends State<BrowserScreen>
     return _cursorState.position.dy < _chromeHeight(context);
   }
 
-  Future<void> _handleTabBarTap(TabBarHitResult result) async {
+  bool _isCursorInTabSwitcher(BuildContext context) {
+    if (!_tabSwitcherOpen || !_toolbarVisibility.visible) {
+      return false;
+    }
+    return _cursorState.position.dy >= _chromeHeight(context);
+  }
+
+  Future<void> _handleTabSwitcherTap(TabSwitcherHitResult result) async {
     switch (result.target) {
-      case TabBarHitTarget.newTab:
+      case TabSwitcherHitTarget.newTab:
         if (!_tabManager.createTab()) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -383,13 +392,14 @@ class _BrowserScreenState extends State<BrowserScreen>
             );
           }
         }
-      case TabBarHitTarget.tab:
+      case TabSwitcherHitTarget.tab:
         final index = result.tabIndex;
         if (index != null) {
           _tabManager.switchTab(index);
           _syncActiveTabUi();
+          setState(() => _tabSwitcherOpen = false);
         }
-      case TabBarHitTarget.closeTab:
+      case TabSwitcherHitTarget.closeTab:
         final index = result.tabIndex;
         if (index != null &&
             index < _tabManager.tabs.length &&
@@ -427,6 +437,8 @@ class _BrowserScreenState extends State<BrowserScreen>
         await _activeController.loadUrl(BrowserSettings.bookmarksHomeUrl);
       case ToolbarHitTarget.bookmark:
         await _onBookmarkPressed();
+      case ToolbarHitTarget.tabsButton:
+        setState(() => _tabSwitcherOpen = !_tabSwitcherOpen);
       case ToolbarHitTarget.urlField:
         _urlFocusNode.requestFocus();
         SystemChannels.textInput.invokeMethod<void>('TextInput.show');
@@ -436,22 +448,23 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _handleChromeTap() async {
+    await _handleToolbarTap();
+  }
+
+  Future<void> _handleTabSwitcherAreaTap() async {
     final globalPos = _cursorGlobalPosition();
     if (globalPos == null) {
       return;
     }
 
-    final tabHit = _tabBarHitTester.hitTest(
+    final hit = _tabSwitcherHitTester.hitTest(
       globalPos,
       tabIds: _tabManager.tabs.map((tab) => tab.id).toList(),
       canCloseTab: _tabManager.canCloseTab,
     );
-    if (tabHit != null) {
-      await _handleTabBarTap(tabHit);
-      return;
+    if (hit != null) {
+      await _handleTabSwitcherTap(hit);
     }
-
-    await _handleToolbarTap();
   }
 
   Future<void> _onTap() async {
@@ -460,12 +473,17 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
+    if (_isCursorInTabSwitcher(context)) {
+      await _handleTabSwitcherAreaTap();
+      return;
+    }
+
     await _syncCursorToPageImmediate();
     await _activeController.click();
   }
 
   Future<void> _onDoubleTap() async {
-    if (_isCursorInChrome(context)) {
+    if (_isCursorInChrome(context) || _isCursorInTabSwitcher(context)) {
       return;
     }
 
@@ -474,7 +492,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _onLongPress() async {
-    if (_isCursorInChrome(context)) {
+    if (_isCursorInChrome(context) || _isCursorInTabSwitcher(context)) {
       return;
     }
 
@@ -549,6 +567,11 @@ class _BrowserScreenState extends State<BrowserScreen>
   Future<void> _handleSystemBack() async {
     if (_urlFocusNode.hasFocus) {
       _urlFocusNode.unfocus();
+      return;
+    }
+
+    if (_tabSwitcherOpen) {
+      setState(() => _tabSwitcherOpen = false);
       return;
     }
 
@@ -631,42 +654,31 @@ class _BrowserScreenState extends State<BrowserScreen>
                         return ListenableBuilder(
                           listenable: _tabManager,
                           builder: (context, _) {
-                            return Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                BrowserTabBar(
-                                  tabs: _tabManager.tabs,
-                                  activeIndex: _tabManager.activeIndex,
-                                  hitTester: _tabBarHitTester,
-                                  canCloseTab: _tabManager.canCloseTab,
-                                ),
-                                ValueListenableBuilder<BrowserState>(
-                                  valueListenable:
-                                      _activeController.stateNotifier,
-                                  builder: (context, state, _) {
-                                    return ValueListenableBuilder<bool>(
-                                      valueListenable: _isBookmarked,
-                                      builder: (context, bookmarked, _) {
-                                        return BrowserToolbar(
-                                          state: state,
-                                          urlController: _urlController,
-                                          urlFocusNode: _urlFocusNode,
-                                          hitTester: _toolbarHitTester,
-                                          onSubmit: _onUrlSubmitted,
-                                          onBack: _activeController.goBack,
-                                          onForward: _activeController.goForward,
-                                          onReload: _activeController.reload,
-                                          onHome: () => _activeController.loadUrl(
-                                            BrowserSettings.bookmarksHomeUrl,
-                                          ),
-                                          onBookmark: _onBookmarkPressed,
-                                          isBookmarked: bookmarked,
-                                        );
-                                      },
+                            return ValueListenableBuilder<BrowserState>(
+                              valueListenable: _activeController.stateNotifier,
+                              builder: (context, state, _) {
+                                return ValueListenableBuilder<bool>(
+                                  valueListenable: _isBookmarked,
+                                  builder: (context, bookmarked, _) {
+                                    return BrowserToolbar(
+                                      state: state,
+                                      urlController: _urlController,
+                                      urlFocusNode: _urlFocusNode,
+                                      hitTester: _toolbarHitTester,
+                                      tabCount: _tabManager.tabs.length,
+                                      onSubmit: _onUrlSubmitted,
+                                      onBack: _activeController.goBack,
+                                      onForward: _activeController.goForward,
+                                      onReload: _activeController.reload,
+                                      onHome: () => _activeController.loadUrl(
+                                        BrowserSettings.bookmarksHomeUrl,
+                                      ),
+                                      onBookmark: _onBookmarkPressed,
+                                      isBookmarked: bookmarked,
                                     );
                                   },
-                                ),
-                              ],
+                                );
+                              },
                             );
                           },
                         );
@@ -738,6 +750,24 @@ class _BrowserScreenState extends State<BrowserScreen>
                 ),
               ],
             ),
+            if (_tabSwitcherOpen && toolbarVisible)
+              Positioned(
+                top: _chromeHeight(context),
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ListenableBuilder(
+                  listenable: _tabManager,
+                  builder: (context, _) {
+                    return BrowserTabSwitcher(
+                      tabs: _tabManager.tabs,
+                      activeIndex: _tabManager.activeIndex,
+                      hitTester: _tabSwitcherHitTester,
+                      canCloseTab: _tabManager.canCloseTab,
+                    );
+                  },
+                ),
+              ),
             ValueListenableBuilder<Offset>(
               valueListenable: _cursorPosition,
               builder: (context, position, _) {

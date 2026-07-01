@@ -10,6 +10,7 @@ class BrowserToolbar extends StatelessWidget {
     required this.urlController,
     required this.urlFocusNode,
     required this.hitTester,
+    required this.tabCount,
     required this.onSubmit,
     required this.onBack,
     required this.onForward,
@@ -23,6 +24,7 @@ class BrowserToolbar extends StatelessWidget {
   final TextEditingController urlController;
   final FocusNode urlFocusNode;
   final ToolbarHitTester hitTester;
+  final int tabCount;
   final ValueChanged<String> onSubmit;
   final VoidCallback onBack;
   final VoidCallback onForward;
@@ -33,10 +35,12 @@ class BrowserToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return IgnorePointer(
       child: Material(
         elevation: 2,
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        color: colorScheme.surfaceContainerHighest,
         child: SafeArea(
           bottom: false,
           child: SizedBox(
@@ -80,30 +84,83 @@ class BrowserToolbar extends StatelessWidget {
                   icon: Icon(isBookmarked ? Icons.star : Icons.star_border),
                 ),
                 Expanded(
-                  child: TextField(
-                    key: hitTester.urlFieldKey,
-                    controller: urlController,
-                    focusNode: urlFocusNode,
-                    textInputAction: TextInputAction.go,
-                    decoration: InputDecoration(
-                      hintText: '输入网址',
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                      ),
+                  child: Container(
+                    height: 40,
+                    margin: const EdgeInsets.only(right: 8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: colorScheme.outline),
                     ),
-                    onSubmitted: onSubmit,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            key: hitTester.urlFieldKey,
+                            controller: urlController,
+                            focusNode: urlFocusNode,
+                            textInputAction: TextInputAction.go,
+                            decoration: const InputDecoration(
+                              hintText: '输入网址',
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                            ),
+                            onSubmitted: onSubmit,
+                          ),
+                        ),
+                        _TabCountButton(
+                          key: hitTester.tabsButtonKey,
+                          count: tabCount,
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(width: 8),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _TabCountButton extends StatelessWidget {
+  const _TabCountButton({
+    super.key,
+    required this.count,
+  });
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      width: 22,
+      height: 22,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(3),
+        border: Border.all(
+          color: colorScheme.onSurface,
+          width: 1.5,
+        ),
+      ),
+      child: Text(
+        '$count',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              fontSize: 11,
+              height: 1,
+            ),
       ),
     );
   }

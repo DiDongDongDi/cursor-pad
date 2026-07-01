@@ -23,6 +23,7 @@ void main() {
             urlController: urlController,
             urlFocusNode: urlFocusNode,
             hitTester: hitTester,
+            tabCount: 3,
             onSubmit: (_) {},
             onBack: () {},
             onForward: () {},
@@ -50,5 +51,44 @@ void main() {
     urlFocusNode.requestFocus();
     await tester.pump();
     expect(urlFocusNode.hasFocus, isTrue);
+  });
+
+  testWidgets('ToolbarHitTester detects tabs button', (WidgetTester tester) async {
+    final hitTester = ToolbarHitTester();
+    final urlController = TextEditingController(text: 'https://example.com');
+    final urlFocusNode = FocusNode();
+
+    addTearDown(urlController.dispose);
+    addTearDown(urlFocusNode.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BrowserToolbar(
+            state: const BrowserState(currentUrl: 'https://example.com'),
+            urlController: urlController,
+            urlFocusNode: urlFocusNode,
+            hitTester: hitTester,
+            tabCount: 5,
+            onSubmit: (_) {},
+            onBack: () {},
+            onForward: () {},
+            onReload: () {},
+            onHome: () {},
+            onBookmark: () {},
+            isBookmarked: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final tabsBox = hitTester.tabsButtonKey.currentContext!.findRenderObject()
+        as RenderBox;
+    final center = tabsBox.localToGlobal(
+      tabsBox.size.center(Offset.zero),
+    );
+    expect(hitTester.hitTest(center), ToolbarHitTarget.tabsButton);
+    expect(find.text('5'), findsOneWidget);
   });
 }

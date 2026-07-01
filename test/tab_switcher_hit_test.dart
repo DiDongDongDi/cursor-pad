@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cursor_pad/features/browser/browser_tab.dart';
-import 'package:cursor_pad/features/browser/browser_tab_bar.dart';
+import 'package:cursor_pad/features/browser/browser_tab_switcher.dart';
 import 'package:cursor_pad/features/browser/browser_controller.dart';
-import 'package:cursor_pad/features/browser/tab_bar_hit_tester.dart';
+import 'package:cursor_pad/features/browser/tab_switcher_hit_tester.dart';
 
 void main() {
-  testWidgets('TabBarHitTester detects tab, close, and new tab targets',
+  testWidgets('TabSwitcherHitTester detects tab, close, and new tab targets',
       (WidgetTester tester) async {
-    final hitTester = TabBarHitTester();
+    final hitTester = TabSwitcherHitTester();
     final controllerA = BrowserController();
     final controllerB = BrowserController();
     addTearDown(controllerA.dispose);
@@ -23,7 +23,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: BrowserTabBar(
+          body: BrowserTabSwitcher(
             tabs: tabs,
             activeIndex: 0,
             hitTester: hitTester,
@@ -47,7 +47,7 @@ void main() {
         tabIds: tabIds,
         canCloseTab: true,
       )?.target,
-      TabBarHitTarget.tab,
+      TabSwitcherHitTarget.tab,
     );
 
     final closeBox =
@@ -61,7 +61,7 @@ void main() {
         tabIds: tabIds,
         canCloseTab: true,
       )?.target,
-      TabBarHitTarget.closeTab,
+      TabSwitcherHitTarget.closeTab,
     );
 
     final newTabBox =
@@ -75,7 +75,7 @@ void main() {
         tabIds: tabIds,
         canCloseTab: true,
       )?.target,
-      TabBarHitTarget.newTab,
+      TabSwitcherHitTarget.newTab,
     );
   });
 }

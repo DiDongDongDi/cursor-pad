@@ -1,22 +1,22 @@
 import 'package:flutter/material.dart';
 
-enum TabBarHitTarget {
+enum TabSwitcherHitTarget {
   tab,
   closeTab,
   newTab,
 }
 
-class TabBarHitResult {
-  const TabBarHitResult({
+class TabSwitcherHitResult {
+  const TabSwitcherHitResult({
     required this.target,
     this.tabIndex,
   });
 
-  final TabBarHitTarget target;
+  final TabSwitcherHitTarget target;
   final int? tabIndex;
 }
 
-class TabBarHitTester {
+class TabSwitcherHitTester {
   final GlobalKey newTabKey = GlobalKey();
   final Map<String, GlobalKey> _tabKeys = {};
   final Map<String, GlobalKey> _closeKeys = {};
@@ -32,7 +32,7 @@ class TabBarHitTester {
     _closeKeys.removeWhere((id, _) => !activeTabIds.contains(id));
   }
 
-  TabBarHitResult? hitTest(
+  TabSwitcherHitResult? hitTest(
     Offset globalPosition, {
     required List<String> tabIds,
     required bool canCloseTab,
@@ -41,8 +41,8 @@ class TabBarHitTester {
       for (var i = 0; i < tabIds.length; i++) {
         final closeKey = _closeKeys[tabIds[i]];
         if (closeKey != null && _contains(closeKey, globalPosition)) {
-          return TabBarHitResult(
-            target: TabBarHitTarget.closeTab,
+          return TabSwitcherHitResult(
+            target: TabSwitcherHitTarget.closeTab,
             tabIndex: i,
           );
         }
@@ -52,15 +52,15 @@ class TabBarHitTester {
     for (var i = 0; i < tabIds.length; i++) {
       final tabKey = _tabKeys[tabIds[i]];
       if (tabKey != null && _contains(tabKey, globalPosition)) {
-        return TabBarHitResult(
-          target: TabBarHitTarget.tab,
+        return TabSwitcherHitResult(
+          target: TabSwitcherHitTarget.tab,
           tabIndex: i,
         );
       }
     }
 
     if (_contains(newTabKey, globalPosition)) {
-      return const TabBarHitResult(target: TabBarHitTarget.newTab);
+      return const TabSwitcherHitResult(target: TabSwitcherHitTarget.newTab);
     }
 
     return null;

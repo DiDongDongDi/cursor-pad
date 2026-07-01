@@ -6,6 +6,7 @@ enum ToolbarHitTarget {
   reload,
   home,
   bookmark,
+  tabsButton,
   urlField,
 }
 
@@ -15,6 +16,7 @@ class ToolbarHitTester {
   final GlobalKey reloadKey = GlobalKey();
   final GlobalKey homeKey = GlobalKey();
   final GlobalKey bookmarkKey = GlobalKey();
+  final GlobalKey tabsButtonKey = GlobalKey();
   final GlobalKey urlFieldKey = GlobalKey();
 
   ToolbarHitTarget? hitTest(Offset globalPosition) {
@@ -38,6 +40,7 @@ class ToolbarHitTester {
         (key: reloadKey, target: ToolbarHitTarget.reload),
         (key: homeKey, target: ToolbarHitTarget.home),
         (key: bookmarkKey, target: ToolbarHitTarget.bookmark),
+        (key: tabsButtonKey, target: ToolbarHitTarget.tabsButton),
         (key: urlFieldKey, target: ToolbarHitTarget.urlField),
       ];
 }
