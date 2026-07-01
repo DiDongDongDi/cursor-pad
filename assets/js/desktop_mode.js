@@ -61,29 +61,65 @@
     return BASE_SCALE * USER_SCALE;
   }
 
-  function ensureViewportMeta() {
+  function formatScale(value) {
+    return Math.round(value * 10000) / 10000;
+  }
+
+  function buildViewportContent(scaleOverride) {
+    BASE_SCALE = SCREEN_WIDTH / VIEWPORT_WIDTH;
+    var scale = formatScale(
+      scaleOverride != null ? scaleOverride : getEffectiveScale(),
+    );
+    return (
+      'width=' +
+      VIEWPORT_WIDTH +
+      ', initial-scale=' +
+      scale +
+      ', minimum-scale=' +
+      formatScale(BASE_SCALE * MIN_USER_SCALE) +
+      ', maximum-scale=' +
+      formatScale(BASE_SCALE * MAX_USER_SCALE) +
+      ', user-scalable=yes'
+    );
+  }
+
+  function getOrCreateViewportMeta() {
     var meta = document.querySelector('meta[name="viewport"]');
     if (!meta) {
       meta = document.createElement('meta');
       meta.name = 'viewport';
       document.head.appendChild(meta);
     }
-    BASE_SCALE = SCREEN_WIDTH / VIEWPORT_WIDTH;
-    var scale = getEffectiveScale();
-    var desired =
-      'width=' +
-      VIEWPORT_WIDTH +
-      ', initial-scale=' +
-      scale +
-      ', minimum-scale=' +
-      BASE_SCALE * MIN_USER_SCALE +
-      ', maximum-scale=' +
-      BASE_SCALE * MAX_USER_SCALE +
-      ', user-scalable=yes';
-    if (meta.content === desired) {
-      return;
-    }
-    meta.content = desired;
+    return meta;
+  }
+
+  function writeViewportMeta(desired) {
+    getOrCreateViewportMeta().content = desired;
+  }
+
+  function forceWriteViewportMeta() {
+    var desired = buildViewportContent();
+    var meta = getOrCreateViewportMeta();
+    var nudge = buildViewportContent(getEffectiveScale() * 1.01);
+    meta.content = nudge;
+    requestAnimationFrame(function () {
+      meta.content = desired;
+      requestAnimationFrame(function () {
+        meta.content = desired;
+      });
+    });
+  }
+
+  function ensureViewportMeta() {
+    writeViewportMeta(buildViewportContent());
+  }
+
+  function applyDefaultZoom() {
+    USER_SCALE = MIN_USER_SCALE;
+    updateViewportDimensions();
+    forceWriteViewportMeta();
+    setTimeout(forceWriteViewportMeta, 50);
+    setTimeout(forceWriteViewportMeta, 250);
   }
 
   function setUserScale(scale) {
@@ -100,7 +136,7 @@
 
   function resetUserScale() {
     USER_SCALE = MIN_USER_SCALE;
-    ensureViewportMeta();
+    forceWriteViewportMeta();
   }
 
   function patchScreenDimensions() {
@@ -379,7 +415,13 @@
       pending = true;
       requestAnimationFrame(function () {
         pending = false;
-        ensureViewportMeta();
+        var desired = buildViewportContent();
+        var meta = document.querySelector('meta[name="viewport"]');
+        if (!meta || meta.content !== desired) {
+          forceWriteViewportMeta();
+        } else {
+          ensureViewportMeta();
+        }
       });
     });
     observer.observe(document.documentElement, {
@@ -394,15 +436,15 @@
 
     history.pushState = function () {
       originalPushState.apply(this, arguments);
-      ensureViewportMeta();
+      applyDefaultZoom();
     };
 
     history.replaceState = function () {
       originalReplaceState.apply(this, arguments);
-      ensureViewportMeta();
+      applyDefaultZoom();
     };
 
-    window.addEventListener('popstate', ensureViewportMeta);
+    window.addEventListener('popstate', applyDefaultZoom);
   }
 
   function installStylesheetGuard() {
@@ -453,7 +495,10 @@
     document.addEventListener('DOMContentLoaded', applyDesktopLayoutFixes, {
       once: true,
     });
-    window.addEventListener('load', applyDesktopLayoutFixes, { once: true });
+    window.addEventListener('load', function () {
+      applyDesktopLayoutFixes();
+      applyDefaultZoom();
+    });
   }
 
   updateViewportDimensions();
@@ -509,6 +554,7 @@
     },
     zoomBy: zoomBy,
     resetUserScale: resetUserScale,
+    applyDefaultZoom: applyDefaultZoom,
     getUserScale: function () {
       return USER_SCALE;
     },

@@ -305,7 +305,6 @@ class BrowserController {
       ),
     );
     progressNotifier.value = 0;
-    unawaited(resetZoom());
   }
 
   Future<void> onLoadStop(WebUri? url) async {
@@ -330,6 +329,7 @@ class BrowserController {
         ),
       );
       await syncViewport(_lastViewportWidth, _lastViewportHeight, force: true);
+      await applyDefaultZoom();
       onPageReady?.call();
       return;
     }
@@ -338,6 +338,7 @@ class BrowserController {
     progressNotifier.value = 100;
     _emit(state.copyWith(isLoading: false, progress: 100));
     await syncViewport(_lastViewportWidth, _lastViewportHeight, force: true);
+    await applyDefaultZoom();
     onPageReady?.call();
   }
 
@@ -514,11 +515,15 @@ class BrowserController {
     );
   }
 
-  Future<void> resetZoom() async {
+  Future<void> applyDefaultZoom() async {
     await _webViewController?.evaluateJavascript(
       source:
-          'window.__cursorPadDesktop && window.__cursorPadDesktop.resetUserScale();',
+          'window.__cursorPadDesktop && window.__cursorPadDesktop.applyDefaultZoom();',
     );
+  }
+
+  Future<void> resetZoom() async {
+    await applyDefaultZoom();
   }
 
   Future<void> handleDeleteBookmark(String id) async {
