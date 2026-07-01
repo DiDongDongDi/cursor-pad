@@ -6,7 +6,6 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../bookmarks/bookmark_repository.dart';
 import '../bookmarks/bookmarks_html.dart';
 import '../../features/settings/browser_settings.dart';
-import '../../platform/webview_touch.dart';
 import 'browser_state.dart';
 
 class BrowserController {
@@ -432,19 +431,6 @@ class BrowserController {
   }
 
   Future<void> click({int button = 0}) async {
-    if (button == 0 &&
-        !kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.android) {
-      final px = _pendingCursorX;
-      final py = _pendingCursorY;
-      if (px != null && py != null) {
-        final handled = await WebViewTouchSimulator.clickAt(px, py);
-        if (handled) {
-          return;
-        }
-      }
-    }
-
     await _webViewController?.evaluateJavascript(
       source: 'window.__cursorPad && window.__cursorPad.click($button);',
     );
