@@ -546,6 +546,20 @@ class _BrowserScreenState extends State<BrowserScreen>
     await _activeController.loadUrl(url);
   }
 
+  Future<void> _handleSystemBack() async {
+    if (_urlFocusNode.hasFocus) {
+      _urlFocusNode.unfocus();
+      return;
+    }
+
+    if (await _activeController.webViewController?.canGoBack() ?? false) {
+      await _activeController.goBack();
+      return;
+    }
+
+    await SystemNavigator.pop();
+  }
+
   void _onWebViewCreated(BrowserTab tab) {
     tab.webViewReady = true;
     if (tab.id != _activeTab.id) {
@@ -583,7 +597,15 @@ class _BrowserScreenState extends State<BrowserScreen>
   Widget build(BuildContext context) {
     final toolbarVisible = _toolbarVisibility.visible;
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          return;
+        }
+        unawaited(_handleSystemBack());
+      },
+      child: Scaffold(
       body: TouchpadDetector(
         sensitivity: _tabManager.settings.cursorSensitivity,
         scrollSensitivity: _tabManager.settings.scrollSensitivity,
@@ -727,6 +749,7 @@ class _BrowserScreenState extends State<BrowserScreen>
             ),
           ],
         ),
+      ),
       ),
     );
   }
