@@ -180,9 +180,23 @@ class _BrowserScreenState extends State<BrowserScreen>
   void _onUrlFocusChanged() {
     if (_urlFocusNode.hasFocus) {
       _toolbarVisibility.pin();
+      _selectAllUrlText();
     } else {
       _toolbarVisibility.unpin();
     }
+  }
+
+  void _selectAllUrlText() {
+    final length = _urlController.text.length;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_urlFocusNode.hasFocus) {
+        return;
+      }
+      _urlController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: length,
+      );
+    });
   }
 
   void _onToolbarVisibilityChanged() {
@@ -441,6 +455,7 @@ class _BrowserScreenState extends State<BrowserScreen>
         setState(() => _tabSwitcherOpen = !_tabSwitcherOpen);
       case ToolbarHitTarget.urlField:
         _urlFocusNode.requestFocus();
+        _selectAllUrlText();
         SystemChannels.textInput.invokeMethod<void>('TextInput.show');
       case null:
         break;
