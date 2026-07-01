@@ -42,9 +42,10 @@ class TouchpadDetector extends StatefulWidget {
 
 class _TouchpadDetectorState extends State<TouchpadDetector> {
   static const _twoFingerSlop = 12.0;
-  static const _pinchDistanceRate = 0.07;
-  static const _spreadParallelRatio = 1.2;
-  static const _pinchSpreadSlop = 18.0;
+  static const _pinchDistanceRate = 0.10;
+  static const _spreadParallelRatio = 1.5;
+  static const _pinchSpreadSlop = 24.0;
+  static const _pinchAbsoluteDistanceSlop = 12.0;
 
   final Map<int, Offset> _pointers = {};
   final Map<int, Offset> _lastPointerPositions = {};
@@ -158,27 +159,41 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
         _gestureStartDistance!;
 
     final readyToDecide = _accumulatedCentroidTravel >= _twoFingerSlop ||
-        _accumulatedSpread >= _twoFingerSlop ||
-        distanceChangeRate >= _pinchDistanceRate;
+        _accumulatedSpread >= _twoFingerSlop;
 
     if (!readyToDecide) {
       return;
     }
 
     if (_accumulatedCentroidTravel >= _twoFingerSlop &&
-        _accumulatedCentroidTravel > _accumulatedSpread * 1.2) {
+        _accumulatedSpread < _pinchSpreadSlop) {
       _twoFingerMode = _TwoFingerMode.scroll;
       return;
     }
+
+    if (_accumulatedCentroidTravel >= _twoFingerSlop &&
+        _accumulatedCentroidTravel >= _accumulatedSpread * 0.85) {
+      _twoFingerMode = _TwoFingerMode.scroll;
+      return;
+    }
+
+    final absoluteDistanceChange =
+        (distance - _gestureStartDistance!).abs();
+
+    final spreadDominatesParallel =
+        _accumulatedSpread > _accumulatedParallel * _spreadParallelRatio;
+    final isPurePinch = _accumulatedCentroidTravel < _twoFingerSlop;
 
     final lockScroll = _accumulatedCentroidTravel >= _twoFingerSlop &&
         (distanceChangeRate < _pinchDistanceRate ||
             _accumulatedParallel > _accumulatedSpread * _spreadParallelRatio);
 
     final lockPinch = distanceChangeRate >= _pinchDistanceRate &&
-        _accumulatedSpread > _accumulatedParallel * _spreadParallelRatio &&
+        absoluteDistanceChange >= _pinchAbsoluteDistanceSlop &&
         _accumulatedSpread >= _pinchSpreadSlop &&
-        _accumulatedCentroidTravel < _accumulatedSpread;
+        (isPurePinch ||
+            (_accumulatedCentroidTravel <= _accumulatedSpread * 0.5 &&
+                spreadDominatesParallel));
 
     if (lockPinch && !lockScroll) {
       _twoFingerMode = _TwoFingerMode.pinch;
@@ -240,7 +255,7 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
     } else if (_twoFingerMode == _TwoFingerMode.pinch) {
       final scaleFactor = distance / _lastPinchDistance!;
       final scaleDelta = (scaleFactor - 1.0).abs();
-      if (scaleDelta > 0.01) {
+      if (scaleDelta > 0.02) {
         widget.onPinch(scaleFactor);
       }
     }
