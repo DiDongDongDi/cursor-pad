@@ -6,6 +6,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../bookmarks/bookmark_repository.dart';
 import '../bookmarks/bookmarks_html.dart';
 import '../../features/settings/browser_settings.dart';
+import '../../platform/webview_touch.dart';
 import 'browser_state.dart';
 
 class BrowserController {
@@ -431,14 +432,48 @@ class BrowserController {
   }
 
   Future<void> click({int button = 0}) async {
+    final px = _pendingCursorX;
+    final py = _pendingCursorY;
+    final xArg = px ?? 'null';
+    final yArg = py ?? 'null';
+
+    if (button == 0 &&
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        px != null &&
+        py != null) {
+      await WebViewTouchSimulator.clickAt(px, py);
+      await _webViewController?.evaluateJavascript(
+        source:
+            'window.__cursorPad && window.__cursorPad.activateAt($xArg, $yArg);',
+      );
+      return;
+    }
+
     await _webViewController?.evaluateJavascript(
-      source: 'window.__cursorPad && window.__cursorPad.click($button);',
+      source:
+          'window.__cursorPad && window.__cursorPad.click($button, $xArg, $yArg);',
     );
   }
 
   Future<void> doubleClick() async {
+    final px = _pendingCursorX;
+    final py = _pendingCursorY;
+    final xArg = px ?? 'null';
+    final yArg = py ?? 'null';
+
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        px != null &&
+        py != null) {
+      await WebViewTouchSimulator.clickAt(px, py);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await WebViewTouchSimulator.clickAt(px, py);
+    }
+
     await _webViewController?.evaluateJavascript(
-      source: 'window.__cursorPad && window.__cursorPad.doubleClick();',
+      source:
+          'window.__cursorPad && window.__cursorPad.doubleClick($xArg, $yArg);',
     );
   }
 

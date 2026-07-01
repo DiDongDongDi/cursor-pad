@@ -420,8 +420,11 @@
       return { x: x, y: y, tag: target ? target.tagName : null };
     },
 
-    click: function (button) {
+    click: function (button, nativeX, nativeY) {
       button = button == null ? 0 : button;
+      if (nativeX != null && nativeY != null) {
+        this.moveTo(nativeX, nativeY);
+      }
       var target = elementAt(lastX, lastY) || document.body;
       var actionable = findActionableElement(target) || target;
 
@@ -446,7 +449,21 @@
       };
     },
 
-    doubleClick: function () {
+    activateAt: function (nativeX, nativeY) {
+      if (nativeX != null && nativeY != null) {
+        this.moveTo(nativeX, nativeY);
+      }
+      var target = elementAt(lastX, lastY) || document.body;
+      var anchor = findAnchor(target);
+      if (anchor) {
+        followAnchor(anchor);
+      }
+    },
+
+    doubleClick: function (nativeX, nativeY) {
+      if (nativeX != null && nativeY != null) {
+        this.moveTo(nativeX, nativeY);
+      }
       var target = elementAt(lastX, lastY) || document.body;
       var actionable = findActionableElement(target) || target;
 
