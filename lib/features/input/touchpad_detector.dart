@@ -51,6 +51,7 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
   Offset? _lastMultiTouchCentroid;
   double? _lastPinchDistance;
   bool _moved = false;
+  bool _multiTouchActive = false;
   Timer? _longPressTimer;
 
   _TwoFingerMode _twoFingerMode = _TwoFingerMode.undecided;
@@ -267,6 +268,31 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
     });
   }
 
+  void _enterMultiTouch() {
+    _multiTouchActive = true;
+    _lastPanPosition = null;
+    _moved = true;
+    _cancelLongPress();
+  }
+
+  void _onMultiTouchPointerRemoved() {
+    if (_pointers.length == 1 && _multiTouchActive) {
+      _lastPanPosition = _pointers.values.first;
+      _moved = true;
+      return;
+    }
+
+    if (_pointers.isEmpty) {
+      _multiTouchActive = false;
+      _lastPanPosition = null;
+      _lastMultiTouchCentroid = null;
+      _lastPinchDistance = null;
+      _lastPointerPositions.clear();
+      _resetTwoFingerGesture();
+      _moved = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Listener(
@@ -279,10 +305,11 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
           _moved = false;
           _scheduleLongPress();
         } else {
-          _cancelLongPress();
           if (_pointers.length == 2) {
+            _enterMultiTouch();
             _beginTwoFingerGesture();
           } else {
+            _cancelLongPress();
             _updateMultiTouchCentroid();
           }
         }
@@ -318,28 +345,14 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
           widget.onTap();
         }
 
-        if (_pointers.isEmpty) {
-          _lastPanPosition = null;
-          _lastMultiTouchCentroid = null;
-          _lastPinchDistance = null;
-          _lastPointerPositions.clear();
-          _resetTwoFingerGesture();
-          _moved = false;
-        }
+        _onMultiTouchPointerRemoved();
       },
       onPointerCancel: (event) {
         _pointers.remove(event.pointer);
         _lastPointerPositions.remove(event.pointer);
         _cancelLongPress();
         _updateMultiTouchCentroid();
-        if (_pointers.isEmpty) {
-          _lastPanPosition = null;
-          _lastMultiTouchCentroid = null;
-          _lastPinchDistance = null;
-          _lastPointerPositions.clear();
-          _resetTwoFingerGesture();
-          _moved = false;
-        }
+        _onMultiTouchPointerRemoved();
       },
       onPointerSignal: (event) {
         if (event is PointerScrollEvent) {

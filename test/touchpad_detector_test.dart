@@ -26,6 +26,19 @@ void main() {
     );
   }
 
+  void expectNoLargeMoveDeltas(
+    List<Offset> moveDeltas, {
+    double maxDistance = 8,
+  }) {
+    for (final delta in moveDeltas) {
+      expect(
+        delta.distance,
+        lessThanOrEqualTo(maxDistance),
+        reason: 'Unexpected cursor move delta $delta',
+      );
+    }
+  }
+
   testWidgets('two-finger vertical drag triggers onScroll with dy', (tester) async {
     final scrollDeltas = <Offset>[];
 
@@ -137,6 +150,77 @@ void main() {
     await finger1.up();
     await finger2.up();
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('two-finger scroll end does not trigger onMove jump', (tester) async {
+    final moveDeltas = <Offset>[];
+    final scrollDeltas = <Offset>[];
+
+    await tester.pumpWidget(
+      buildTouchpad(
+        moveThreshold: 8,
+        onMove: moveDeltas.add,
+        onScroll: scrollDeltas.add,
+      ),
+    );
+
+    final finger1 = await tester.createGesture();
+    final finger2 = await tester.createGesture();
+
+    await finger1.down(const Offset(100, 100));
+    await finger2.down(const Offset(200, 100));
+    await tester.pump();
+
+    await finger1.moveBy(const Offset(0, 80));
+    await finger2.moveBy(const Offset(0, 80));
+    await tester.pump();
+
+    expect(scrollDeltas, isNotEmpty);
+
+    await finger2.up();
+    await tester.pump();
+    await finger1.moveBy(const Offset(0, 1));
+    await tester.pump();
+    await finger1.up();
+    await tester.pumpAndSettle();
+
+    expectNoLargeMoveDeltas(moveDeltas);
+  });
+
+  testWidgets('two-finger pinch end does not trigger onMove jump', (tester) async {
+    final moveDeltas = <Offset>[];
+    final pinchFactors = <double>[];
+
+    await tester.pumpWidget(
+      buildTouchpad(
+        moveThreshold: 8,
+        onMove: moveDeltas.add,
+        onScroll: (_) {},
+        onPinch: pinchFactors.add,
+      ),
+    );
+
+    final finger1 = await tester.createGesture();
+    final finger2 = await tester.createGesture();
+
+    await finger1.down(const Offset(100, 200));
+    await finger2.down(const Offset(200, 200));
+    await tester.pump();
+
+    await finger1.moveBy(const Offset(-40, 0));
+    await finger2.moveBy(const Offset(40, 0));
+    await tester.pump();
+
+    expect(pinchFactors, isNotEmpty);
+
+    await finger1.up();
+    await tester.pump();
+    await finger2.moveBy(const Offset(1, 0));
+    await tester.pump();
+    await finger2.up();
+    await tester.pumpAndSettle();
+
+    expectNoLargeMoveDeltas(moveDeltas);
   });
 
   testWidgets('two-finger drag with spacing jitter does not trigger onPinch',
