@@ -305,6 +305,7 @@ class BrowserController {
       ),
     );
     progressNotifier.value = 0;
+    unawaited(resetZoom());
   }
 
   Future<void> onLoadStop(WebUri? url) async {
@@ -500,6 +501,23 @@ class BrowserController {
     await _webViewController?.evaluateJavascript(
       source:
           'window.__cursorPad && window.__cursorPad.scroll($deltaX, $deltaY);',
+    );
+  }
+
+  Future<void> zoomBy(double scaleFactor) async {
+    if (scaleFactor <= 0 || scaleFactor == 1) {
+      return;
+    }
+    await _webViewController?.evaluateJavascript(
+      source:
+          'window.__cursorPadDesktop && window.__cursorPadDesktop.zoomBy($scaleFactor);',
+    );
+  }
+
+  Future<void> resetZoom() async {
+    await _webViewController?.evaluateJavascript(
+      source:
+          'window.__cursorPadDesktop && window.__cursorPadDesktop.resetUserScale();',
     );
   }
 

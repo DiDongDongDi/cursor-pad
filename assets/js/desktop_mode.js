@@ -5,6 +5,10 @@
   var VIEWPORT_HEIGHT = 720;
   var SCREEN_WIDTH = 1280;
   var _heightRatio = null;
+  var BASE_SCALE = 1;
+  var USER_SCALE = 1;
+  var MIN_USER_SCALE = 0.5;
+  var MAX_USER_SCALE = 3;
   var LAYOUT_STYLE_ID = 'cursorpad-desktop-layout';
   var TOUCH_STYLE_ID = 'cursorpad-touch-patch';
 
@@ -53,6 +57,10 @@
     VIEWPORT_HEIGHT = Math.round(VIEWPORT_WIDTH * _heightRatio);
   }
 
+  function getEffectiveScale() {
+    return BASE_SCALE * USER_SCALE;
+  }
+
   function ensureViewportMeta() {
     var meta = document.querySelector('meta[name="viewport"]');
     if (!meta) {
@@ -60,17 +68,39 @@
       meta.name = 'viewport';
       document.head.appendChild(meta);
     }
-    var scale = SCREEN_WIDTH / VIEWPORT_WIDTH;
+    BASE_SCALE = SCREEN_WIDTH / VIEWPORT_WIDTH;
+    var scale = getEffectiveScale();
     var desired =
       'width=' +
       VIEWPORT_WIDTH +
       ', initial-scale=' +
       scale +
-      ', user-scalable=no';
+      ', minimum-scale=' +
+      BASE_SCALE * MIN_USER_SCALE +
+      ', maximum-scale=' +
+      BASE_SCALE * MAX_USER_SCALE +
+      ', user-scalable=yes';
     if (meta.content === desired) {
       return;
     }
     meta.content = desired;
+  }
+
+  function setUserScale(scale) {
+    USER_SCALE = Math.max(MIN_USER_SCALE, Math.min(MAX_USER_SCALE, scale));
+    ensureViewportMeta();
+  }
+
+  function zoomBy(factor) {
+    if (!factor || factor <= 0) {
+      return;
+    }
+    setUserScale(USER_SCALE * factor);
+  }
+
+  function resetUserScale() {
+    USER_SCALE = 1;
+    ensureViewportMeta();
   }
 
   function patchScreenDimensions() {
@@ -277,9 +307,6 @@
   function buildDesktopLayoutCss() {
     return (
       '@media (max-device-width: 99999px), (max-width: 99999px) {' +
-      'html { min-width: ' +
-      VIEWPORT_WIDTH +
-      'px !important; }' +
       'table { display: table !important; table-layout: auto !important; width: auto !important; max-width: none !important; }' +
       'thead { display: table-header-group !important; }' +
       'tbody { display: table-row-group !important; }' +
@@ -479,6 +506,11 @@
       updateViewportDimensions();
       ensureViewportMeta();
       applyDesktopLayoutFixes();
+    },
+    zoomBy: zoomBy,
+    resetUserScale: resetUserScale,
+    getUserScale: function () {
+      return USER_SCALE;
     },
   };
 })();

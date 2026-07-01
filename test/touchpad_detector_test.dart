@@ -7,6 +7,7 @@ void main() {
   Widget buildTouchpad({
     required void Function(Offset delta) onMove,
     required void Function(Offset delta) onScroll,
+    void Function(double scaleFactor)? onPinch,
     double moveThreshold = 0,
   }) {
     return MaterialApp(
@@ -19,6 +20,7 @@ void main() {
         onDoubleTap: () {},
         onLongPress: () {},
         onScroll: onScroll,
+        onPinch: onPinch ?? (_) {},
         child: const SizedBox.expand(),
       ),
     );
@@ -104,6 +106,36 @@ void main() {
     expect(scrollDeltas, isEmpty);
 
     await finger.up();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('two-finger pinch triggers onPinch', (tester) async {
+    final pinchFactors = <double>[];
+
+    await tester.pumpWidget(
+      buildTouchpad(
+        onMove: (_) {},
+        onScroll: (_) {},
+        onPinch: pinchFactors.add,
+      ),
+    );
+
+    final finger1 = await tester.createGesture();
+    final finger2 = await tester.createGesture();
+
+    await finger1.down(const Offset(100, 200));
+    await finger2.down(const Offset(200, 200));
+    await tester.pump();
+
+    await finger1.moveBy(const Offset(-40, 0));
+    await finger2.moveBy(const Offset(40, 0));
+    await tester.pump();
+
+    expect(pinchFactors, isNotEmpty);
+    expect(pinchFactors.last, greaterThan(1));
+
+    await finger1.up();
+    await finger2.up();
     await tester.pumpAndSettle();
   });
 }

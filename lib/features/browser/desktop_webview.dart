@@ -149,7 +149,7 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
           useWideViewPort: true,
           loadWithOverviewMode: false,
           textZoom: 100,
-          supportZoom: false,
+          supportZoom: true,
           builtInZoomControls: false,
           displayZoomControls: false,
           disableHorizontalScroll: false,

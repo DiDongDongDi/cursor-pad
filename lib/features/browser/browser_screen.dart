@@ -352,6 +352,10 @@ class _BrowserScreenState extends State<BrowserScreen>
     await _browserController.scroll(delta.dx, delta.dy);
   }
 
+  Future<void> _onPinch(double scaleFactor) async {
+    await _browserController.zoomBy(scaleFactor);
+  }
+
   Future<void> _onBookmarkPressed() async {
     final currentUrl = _browserController.state.currentUrl;
     if (currentUrl.isEmpty ||
@@ -447,6 +451,7 @@ class _BrowserScreenState extends State<BrowserScreen>
         onDoubleTap: _onDoubleTap,
         onLongPress: _onLongPress,
         onScroll: _onScroll,
+        onPinch: _onPinch,
         child: Stack(
           key: _bodyStackKey,
           fit: StackFit.expand,
