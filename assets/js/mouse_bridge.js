@@ -12,7 +12,7 @@
     'a[href], area[href], button, input, select, textarea, label, summary, ' +
     '[role="button"], [role="link"], [role="menuitem"], [role="tab"], ' +
     '[role="checkbox"], [role="radio"], [role="switch"], [role="option"], ' +
-    '[tabindex]:not([tabindex="-1"]), [onclick]';
+    '[aria-expanded], [tabindex]:not([tabindex="-1"]), [onclick]';
 
   var INTERACTIVE_ROLES = {
     button: 1,
@@ -169,6 +169,59 @@
     }
 
     return el;
+  }
+
+  function isToggleLikeElement(el) {
+    if (!el || isDisabled(el)) {
+      return false;
+    }
+
+    if (el.tagName === 'SUMMARY') {
+      return true;
+    }
+
+    if (el.hasAttribute('aria-expanded') || el.hasAttribute('aria-controls')) {
+      return true;
+    }
+
+    var role = el.getAttribute && el.getAttribute('role');
+    if (role === 'button' && el.hasAttribute('aria-expanded')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  function isFormControl(el) {
+    if (!el) {
+      return false;
+    }
+    var tag = el.tagName;
+    return (
+      tag === 'INPUT' ||
+      tag === 'TEXTAREA' ||
+      tag === 'SELECT' ||
+      el.isContentEditable
+    );
+  }
+
+  function shouldProgrammaticActivate(el, button) {
+    if (button !== 0 || !el || isDisabled(el)) {
+      return false;
+    }
+    if (isToggleLikeElement(el)) {
+      return false;
+    }
+    if (findAnchor(el)) {
+      return true;
+    }
+    if (isFormControl(el)) {
+      return true;
+    }
+    if (el.tagName === 'LABEL') {
+      return true;
+    }
+    return false;
   }
 
   function isPointerEventsNone(el) {
@@ -463,9 +516,9 @@
       var target = elementAt(lastX, lastY) || document.body;
       var actionable = findActionableElement(target) || target;
 
-      dispatchClickSequence(target, lastX, lastY, { button: button });
+      dispatchClickSequence(actionable, lastX, lastY, { button: button });
 
-      if (button === 0) {
+      if (button === 0 && shouldProgrammaticActivate(actionable, button)) {
         activateElement(actionable);
       } else if (button === 2) {
         (actionable || target).dispatchEvent(
@@ -489,23 +542,17 @@
         this.moveTo(nativeX, nativeY);
       }
       var target = elementAt(lastX, lastY) || document.body;
-      var anchor = findAnchor(target);
-      if (anchor) {
-        followAnchor(anchor);
+      var actionable = findActionableElement(target);
+      if (!actionable) {
         return { needsIme: false };
       }
-      var actionable = findActionableElement(target);
-      if (actionable) {
-        activateElement(actionable);
-        var tag = actionable.tagName;
-        var needsIme =
-          tag === 'INPUT' ||
-          tag === 'TEXTAREA' ||
-          tag === 'SELECT' ||
-          actionable.isContentEditable;
-        return { needsIme: needsIme, tag: tag };
-      }
-      return { needsIme: false };
+      var tag = actionable.tagName;
+      var needsIme =
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        actionable.isContentEditable;
+      return { needsIme: needsIme, tag: tag };
     },
 
     doubleClick: function (nativeX, nativeY) {
@@ -515,8 +562,8 @@
       var target = elementAt(lastX, lastY) || document.body;
       var actionable = findActionableElement(target) || target;
 
-      dispatchClickSequence(target, lastX, lastY, { button: 0, detail: 1 });
-      dispatchClickSequence(target, lastX, lastY, { button: 0, detail: 2 });
+      dispatchClickSequence(actionable, lastX, lastY, { button: 0, detail: 1 });
+      dispatchClickSequence(actionable, lastX, lastY, { button: 0, detail: 2 });
       actionable.dispatchEvent(
         createMouseEvent('dblclick', lastX, lastY, { button: 0, detail: 2 }),
       );

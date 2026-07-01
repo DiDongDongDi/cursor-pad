@@ -461,6 +461,7 @@ class BrowserController {
         px != null &&
         py != null) {
       await WebViewTouchSimulator.clickAt(px, py);
+      // activateAt only detects IME need; native touch already activated the target.
       final raw = await _webViewController?.evaluateJavascript(
         source:
             'JSON.stringify(window.__cursorPad && window.__cursorPad.activateAt($xArg, $yArg) || {needsIme:false});',
