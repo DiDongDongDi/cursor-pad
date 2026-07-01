@@ -86,42 +86,36 @@ class BrowserToolbar extends StatelessWidget {
                 Expanded(
                   child: Container(
                     height: 40,
-                    margin: const EdgeInsets.only(right: 8),
+                    margin: const EdgeInsets.only(right: 4),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(24),
                       border: Border.all(color: colorScheme.outline),
                     ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            key: hitTester.urlFieldKey,
-                            controller: urlController,
-                            focusNode: urlFocusNode,
-                            textInputAction: TextInputAction.go,
-                            decoration: const InputDecoration(
-                              hintText: '输入网址',
-                              isDense: true,
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 10,
-                              ),
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                            ),
-                            onSubmitted: onSubmit,
-                          ),
+                    child: TextField(
+                      key: hitTester.urlFieldKey,
+                      controller: urlController,
+                      focusNode: urlFocusNode,
+                      textInputAction: TextInputAction.go,
+                      decoration: const InputDecoration(
+                        hintText: '输入网址',
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
                         ),
-                        _TabCountButton(
-                          key: hitTester.tabsButtonKey,
-                          count: tabCount,
-                        ),
-                        const SizedBox(width: 8),
-                      ],
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                      ),
+                      onSubmitted: onSubmit,
                     ),
                   ),
                 ),
+                _TabCountButton(
+                  key: hitTester.tabsButtonKey,
+                  count: tabCount,
+                ),
+                const SizedBox(width: 8),
               ],
             ),
           ),
