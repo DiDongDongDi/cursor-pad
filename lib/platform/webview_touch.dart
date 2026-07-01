@@ -21,4 +21,16 @@ class WebViewTouchSimulator {
       return false;
     }
   }
+
+  static Future<bool> showIme() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return false;
+    }
+    try {
+      final result = await _channel.invokeMethod<bool>('showIme');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
 }

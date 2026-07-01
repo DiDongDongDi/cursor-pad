@@ -457,7 +457,20 @@
       var anchor = findAnchor(target);
       if (anchor) {
         followAnchor(anchor);
+        return { needsIme: false };
       }
+      var actionable = findActionableElement(target);
+      if (actionable) {
+        activateElement(actionable);
+        var tag = actionable.tagName;
+        var needsIme =
+          tag === 'INPUT' ||
+          tag === 'TEXTAREA' ||
+          tag === 'SELECT' ||
+          actionable.isContentEditable;
+        return { needsIme: needsIme, tag: tag };
+      }
+      return { needsIme: false };
     },
 
     doubleClick: function (nativeX, nativeY) {

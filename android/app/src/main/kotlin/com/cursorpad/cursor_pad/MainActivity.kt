@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -25,6 +26,10 @@ class MainActivity : FlutterActivity() {
                             return@setMethodCallHandler
                         }
                         result.success(simulateClickAt(x, y))
+                    }
+
+                    "showIme" -> {
+                        result.success(showImeForWebView())
                     }
 
                     else -> result.notImplemented()
@@ -92,6 +97,13 @@ class MainActivity : FlutterActivity() {
         up.recycle()
 
         return true
+    }
+
+    private fun showImeForWebView(): Boolean {
+        val webView = findWebView(window.decorView) ?: return false
+        webView.requestFocus()
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        return imm.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
     }
 
     private fun findWebView(view: View): WebView? {

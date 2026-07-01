@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -431,6 +432,21 @@ class BrowserController {
     stateNotifier.dispose();
   }
 
+  bool _parseActivateAtNeedsIme(dynamic raw) {
+    if (raw == null) {
+      return false;
+    }
+    try {
+      final decoded = raw is String ? jsonDecode(raw) : raw;
+      if (decoded is Map && decoded['needsIme'] == true) {
+        return true;
+      }
+    } catch (_) {
+      // Malformed JS return value.
+    }
+    return false;
+  }
+
   Future<void> click({int button = 0}) async {
     final px = _pendingCursorX;
     final py = _pendingCursorY;
@@ -443,10 +459,13 @@ class BrowserController {
         px != null &&
         py != null) {
       await WebViewTouchSimulator.clickAt(px, py);
-      await _webViewController?.evaluateJavascript(
+      final raw = await _webViewController?.evaluateJavascript(
         source:
-            'window.__cursorPad && window.__cursorPad.activateAt($xArg, $yArg);',
+            'JSON.stringify(window.__cursorPad && window.__cursorPad.activateAt($xArg, $yArg) || {needsIme:false});',
       );
+      if (_parseActivateAtNeedsIme(raw)) {
+        await WebViewTouchSimulator.showIme();
+      }
       return;
     }
 

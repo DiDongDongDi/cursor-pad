@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../bookmarks/bookmark.dart';
 import '../settings/browser_settings.dart';
@@ -313,6 +314,7 @@ class _BrowserScreenState extends State<BrowserScreen>
         await _onBookmarkPressed();
       case ToolbarHitTarget.urlField:
         _urlFocusNode.requestFocus();
+        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
       case null:
         break;
     }
