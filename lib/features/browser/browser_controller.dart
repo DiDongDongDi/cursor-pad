@@ -380,7 +380,7 @@ class BrowserController {
       );
       await _webViewController?.evaluateJavascript(
         source:
-            'window.__cursorPadDesktop && window.__cursorPadDesktop.setViewportWidth(${settings.viewportWidth}, $width);',
+            'window.__cursorPadDesktop && window.__cursorPadDesktop.setViewportWidth(${settings.viewportWidth}, $width, $height);',
       );
     } catch (_) {
       // WebView may not be ready yet during platform view init.

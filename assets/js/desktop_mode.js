@@ -5,6 +5,44 @@
   var VIEWPORT_HEIGHT = 720;
   var SCREEN_WIDTH = 1280;
   var _heightRatio = null;
+  var LAYOUT_STYLE_ID = 'cursorpad-desktop-layout';
+  var TOUCH_STYLE_ID = 'cursorpad-touch-patch';
+
+  var MOBILE_MEDIA_PATTERN = /max-device-width|min-device-width/i;
+
+  function isMobileOnlyMaxWidth(media) {
+    var match = media.match(/max-width\s*:\s*(\d+(?:\.\d+)?)(px|em|rem)?/gi);
+    if (!match) {
+      return false;
+    }
+    for (var i = 0; i < match.length; i++) {
+      var parts = /max-width\s*:\s*(\d+(?:\.\d+)?)(px|em|rem)?/i.exec(
+        match[i],
+      );
+      if (!parts) {
+        continue;
+      }
+      var value = parseFloat(parts[1]);
+      var unit = (parts[2] || 'px').toLowerCase();
+      if (unit === 'em' || unit === 'rem') {
+        value = value * 16;
+      }
+      if (value <= 1024) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function isMobileMedia(media) {
+    if (!media || media === 'all' || media === 'screen') {
+      return false;
+    }
+    if (MOBILE_MEDIA_PATTERN.test(media)) {
+      return true;
+    }
+    return isMobileOnlyMaxWidth(media);
+  }
 
   function updateViewportDimensions() {
     if (_heightRatio == null) {
@@ -97,6 +135,52 @@
     }
   }
 
+  function patchDocumentDimensions() {
+    var root = document.documentElement;
+    if (!root) {
+      return;
+    }
+
+    try {
+      Object.defineProperty(root, 'clientWidth', {
+        get: function () {
+          return VIEWPORT_WIDTH;
+        },
+        configurable: true,
+      });
+      Object.defineProperty(root, 'clientHeight', {
+        get: function () {
+          return VIEWPORT_HEIGHT;
+        },
+        configurable: true,
+      });
+      Object.defineProperty(root, 'scrollWidth', {
+        get: function () {
+          return Math.max(root.offsetWidth || 0, VIEWPORT_WIDTH);
+        },
+        configurable: true,
+      });
+    } catch (e) {
+      /* ignore */
+    }
+
+    var body = document.body;
+    if (!body) {
+      return;
+    }
+
+    try {
+      Object.defineProperty(body, 'clientWidth', {
+        get: function () {
+          return VIEWPORT_WIDTH;
+        },
+        configurable: true,
+      });
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
   function rewriteMediaQuery(query) {
     return query
       .replace(/max-device-width/gi, 'max-width')
@@ -174,25 +258,89 @@
     }
   }
 
+  function neutralizeMobileStylesheetLinks(root) {
+    var links = (root || document).querySelectorAll('link[rel~="stylesheet"]');
+    for (var i = 0; i < links.length; i++) {
+      var link = links[i];
+      var media = (link.getAttribute('media') || '').trim();
+      if (!isMobileMedia(media)) {
+        continue;
+      }
+      if (!link.hasAttribute('data-cursorpad-original-media')) {
+        link.setAttribute('data-cursorpad-original-media', media);
+      }
+      link.media = 'not all';
+      link.disabled = true;
+    }
+  }
+
+  function buildDesktopLayoutCss() {
+    return (
+      '@media (max-device-width: 99999px), (max-width: 99999px) {' +
+      'html { min-width: ' +
+      VIEWPORT_WIDTH +
+      'px !important; }' +
+      'table { display: table !important; table-layout: auto !important; width: auto !important; max-width: none !important; }' +
+      'thead { display: table-header-group !important; }' +
+      'tbody { display: table-row-group !important; }' +
+      'tfoot { display: table-footer-group !important; }' +
+      'colgroup { display: table-column-group !important; }' +
+      'col { display: table-column !important; }' +
+      'tr { display: table-row !important; }' +
+      'td, th { display: table-cell !important; white-space: normal !important; ' +
+      'word-wrap: break-word !important; overflow-wrap: break-word !important; ' +
+      'word-break: normal !important; width: auto !important; max-width: none !important; }' +
+      '.table-responsive, [class*="table-responsive"], [class*="TableScroll"], ' +
+      '[class*="table-scroll"], [class*="table_wrap"], [class*="table-wrap"] { ' +
+      'overflow-x: auto !important; width: 100% !important; -webkit-overflow-scrolling: touch; }' +
+      '}'
+    );
+  }
+
+  function injectDesktopLayoutCss() {
+    var head = document.head || document.documentElement;
+    if (!head) {
+      return;
+    }
+
+    var style = document.getElementById(LAYOUT_STYLE_ID);
+    if (!style) {
+      style = document.createElement('style');
+      style.id = LAYOUT_STYLE_ID;
+      style.setAttribute('data-cursorpad', 'desktop-layout');
+    }
+    style.textContent = buildDesktopLayoutCss();
+    head.appendChild(style);
+  }
+
+  function injectTouchPatchCss() {
+    var head = document.head || document.documentElement;
+    if (!head) {
+      return;
+    }
+
+    var style = document.getElementById(TOUCH_STYLE_ID);
+    if (!style) {
+      style = document.createElement('style');
+      style.id = TOUCH_STYLE_ID;
+      style.setAttribute('data-cursorpad', 'touch-patch');
+      style.textContent =
+        '*, *::before, *::after { touch-action: none !important; }' +
+        'html { -webkit-text-size-adjust: 100% !important; text-size-adjust: 100% !important; }';
+      head.appendChild(style);
+    }
+  }
+
+  function applyDesktopLayoutFixes() {
+    neutralizeMobileStylesheetLinks(document);
+    injectDesktopLayoutCss();
+    patchDocumentDimensions();
+  }
+
   function patchTouchDetection() {
     window.ontouchstart = undefined;
     document.ontouchstart = undefined;
-
-    var style = document.createElement('style');
-    style.textContent =
-      '*, *::before, *::after { touch-action: none !important; }' +
-      'html { -webkit-text-size-adjust: 100% !important; text-size-adjust: 100% !important; }';
-    if (document.head) {
-      document.head.appendChild(style);
-    } else {
-      document.addEventListener(
-        'DOMContentLoaded',
-        function () {
-          document.head.appendChild(style);
-        },
-        { once: true },
-      );
-    }
+    injectTouchPatchCss();
   }
 
   function installViewportGuard() {
@@ -230,12 +378,64 @@
     window.addEventListener('popstate', ensureViewportMeta);
   }
 
+  function installStylesheetGuard() {
+    var pending = false;
+    var observer = new MutationObserver(function (mutations) {
+      if (pending) {
+        return;
+      }
+      var shouldFix = false;
+      for (var i = 0; i < mutations.length; i++) {
+        var mutation = mutations[i];
+        if (mutation.type !== 'childList') {
+          continue;
+        }
+        for (var j = 0; j < mutation.addedNodes.length; j++) {
+          var node = mutation.addedNodes[j];
+          if (node.nodeType !== 1) {
+            continue;
+          }
+          var tag = node.tagName;
+          if (tag === 'LINK' || tag === 'STYLE') {
+            shouldFix = true;
+            break;
+          }
+        }
+        if (shouldFix) {
+          break;
+        }
+      }
+      if (!shouldFix) {
+        return;
+      }
+      pending = true;
+      requestAnimationFrame(function () {
+        pending = false;
+        applyDesktopLayoutFixes();
+      });
+    });
+
+    var target = document.head || document.documentElement;
+    if (target) {
+      observer.observe(target, { childList: true, subtree: true });
+    }
+  }
+
+  function scheduleDesktopLayoutFixes() {
+    applyDesktopLayoutFixes();
+    document.addEventListener('DOMContentLoaded', applyDesktopLayoutFixes, {
+      once: true,
+    });
+    window.addEventListener('load', applyDesktopLayoutFixes, { once: true });
+  }
+
   updateViewportDimensions();
   patchScreenDimensions();
   patchMatchMedia();
   patchNavigator();
   patchUserAgentData();
   patchTouchDetection();
+  scheduleDesktopLayoutFixes();
 
   if (document.head) {
     ensureViewportMeta();
@@ -251,20 +451,34 @@
 
   if (document.documentElement) {
     installViewportGuard();
+    installStylesheetGuard();
   } else {
-    document.addEventListener('DOMContentLoaded', installViewportGuard, {
-      once: true,
-    });
+    document.addEventListener(
+      'DOMContentLoaded',
+      function () {
+        installViewportGuard();
+        installStylesheetGuard();
+      },
+      { once: true },
+    );
   }
 
   window.__cursorPadDesktop = {
-    setViewportWidth: function (width, screenWidth) {
+    setViewportWidth: function (width, screenWidth, screenHeight) {
       VIEWPORT_WIDTH = Math.max(width, 1);
       if (screenWidth != null) {
         SCREEN_WIDTH = Math.max(screenWidth, 1);
       }
+      if (
+        screenHeight != null &&
+        screenWidth != null &&
+        screenWidth > 0
+      ) {
+        _heightRatio = screenHeight / screenWidth;
+      }
       updateViewportDimensions();
       ensureViewportMeta();
+      applyDesktopLayoutFixes();
     },
   };
 })();
