@@ -40,6 +40,11 @@ class MainActivity : FlutterActivity() {
     private fun simulateClickAt(x: Float, y: Float): Boolean {
         val webView = findWebView(window.decorView) ?: return false
 
+        // Flutter passes logical pixels (dp); MotionEvent expects view pixels.
+        val density = webView.resources.displayMetrics.density
+        val pxX = x * density
+        val pxY = y * density
+
         val downTime = SystemClock.uptimeMillis()
         val eventTime = downTime + 50
 
@@ -51,8 +56,8 @@ class MainActivity : FlutterActivity() {
         )
         val coords = arrayOf(
             MotionEvent.PointerCoords().apply {
-                this.x = x
-                this.y = y
+                this.x = pxX
+                this.y = pxY
                 pressure = 1f
                 size = 1f
             },
