@@ -343,7 +343,7 @@
   function buildDesktopLayoutCss() {
     return (
       '@media (max-device-width: 99999px), (max-width: 99999px) {' +
-      'table { display: table !important; table-layout: auto !important; width: auto !important; max-width: none !important; }' +
+      'table { display: table !important; table-layout: auto !important; width: 100% !important; max-width: 100% !important; }' +
       'thead { display: table-header-group !important; }' +
       'tbody { display: table-row-group !important; }' +
       'tfoot { display: table-footer-group !important; }' +
@@ -352,7 +352,7 @@
       'tr { display: table-row !important; }' +
       'td, th { display: table-cell !important; white-space: normal !important; ' +
       'word-wrap: break-word !important; overflow-wrap: break-word !important; ' +
-      'word-break: normal !important; width: auto !important; max-width: none !important; }' +
+      'word-break: normal !important; }' +
       '.table-responsive, [class*="table-responsive"], [class*="TableScroll"], ' +
       '[class*="table-scroll"], [class*="table_wrap"], [class*="table-wrap"] { ' +
       'overflow-x: auto !important; width: 100% !important; -webkit-overflow-scrolling: touch; }' +
