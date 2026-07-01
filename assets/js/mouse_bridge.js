@@ -9,12 +9,36 @@
   var pointerId = 1;
 
   var ACTIONABLE_SELECTOR =
-    'a[href], button, input, select, textarea, label, [role="button"], [role="link"], [onclick]';
+    'a[href], area[href], button, input, select, textarea, label, summary, ' +
+    '[role="button"], [role="link"], [role="menuitem"], [role="tab"], ' +
+    '[role="checkbox"], [role="radio"], [role="switch"], [role="option"], ' +
+    '[tabindex]:not([tabindex="-1"]), [onclick]';
+
+  var INTERACTIVE_ROLES = {
+    button: 1,
+    link: 1,
+    menuitem: 1,
+    tab: 1,
+    checkbox: 1,
+    radio: 1,
+    switch: 1,
+    option: 1,
+    treeitem: 1,
+    slider: 1,
+  };
 
   function toViewportCoords(nativeX, nativeY) {
-    var x = (nativeX / nativeWidth) * window.innerWidth;
-    var y = (nativeY / nativeHeight) * window.innerHeight;
-    return { x: x, y: y };
+    var vv = window.visualViewport;
+    if (vv) {
+      return {
+        x: (nativeX / nativeWidth) * vv.width + vv.offsetLeft,
+        y: (nativeY / nativeHeight) * vv.height + vv.offsetTop,
+      };
+    }
+    return {
+      x: (nativeX / nativeWidth) * window.innerWidth,
+      y: (nativeY / nativeHeight) * window.innerHeight,
+    };
   }
 
   function createMouseEvent(type, x, y, options) {
@@ -29,7 +53,12 @@
       clientX: x,
       clientY: y,
       button: options.button || 0,
-      buttons: options.buttons != null ? options.buttons : (options.button === 0 ? 1 : 0),
+      buttons:
+        options.buttons != null
+          ? options.buttons
+          : options.button === 0
+            ? 1
+            : 0,
       ctrlKey: !!options.ctrlKey,
       shiftKey: !!options.shiftKey,
       altKey: !!options.altKey,
@@ -41,7 +70,8 @@
   function createPointerEvent(type, x, y, options) {
     options = options || {};
     var button = options.button != null ? options.button : 0;
-    var buttons = options.buttons != null ? options.buttons : (button === 0 ? 1 : 0);
+    var buttons =
+      options.buttons != null ? options.buttons : button === 0 ? 1 : 0;
 
     return new PointerEvent(type, {
       bubbles: true,
@@ -67,11 +97,173 @@
     });
   }
 
+  function isDisabled(el) {
+    return !!el && (el.disabled || el.getAttribute('aria-disabled') === 'true');
+  }
+
+  function hasPointerCursor(el) {
+    try {
+      return window.getComputedStyle(el).cursor === 'pointer';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function isNaturallyActivatable(el) {
+    if (!el || isDisabled(el)) {
+      return false;
+    }
+
+    var tag = el.tagName;
+    if (
+      tag === 'A' ||
+      tag === 'BUTTON' ||
+      tag === 'INPUT' ||
+      tag === 'SELECT' ||
+      tag === 'TEXTAREA' ||
+      tag === 'SUMMARY' ||
+      tag === 'LABEL' ||
+      tag === 'AREA'
+    ) {
+      return true;
+    }
+
+    if (el.isContentEditable) {
+      return true;
+    }
+
+    var role = el.getAttribute && el.getAttribute('role');
+    if (role && INTERACTIVE_ROLES[role]) {
+      return true;
+    }
+
+    if (el.onclick || el.getAttribute('onclick')) {
+      return true;
+    }
+
+    var tabIndex = el.getAttribute('tabindex');
+    return tabIndex !== null && tabIndex !== '-1';
+  }
+
   function findActionableElement(el) {
     if (!el || !el.closest) {
       return el;
     }
-    return el.closest(ACTIONABLE_SELECTOR) || el;
+
+    var bySelector = el.closest(ACTIONABLE_SELECTOR);
+    if (bySelector && !isDisabled(bySelector)) {
+      return bySelector;
+    }
+
+    var cur = el;
+    var depth = 0;
+    while (cur && cur !== document.documentElement && depth < 10) {
+      if (isNaturallyActivatable(cur)) {
+        return cur;
+      }
+      if (depth > 0 && hasPointerCursor(cur)) {
+        return cur;
+      }
+      cur = cur.parentElement;
+      depth++;
+    }
+
+    return el;
+  }
+
+  function isPointerEventsNone(el) {
+    if (!el || el === document.documentElement || el === document.body) {
+      return false;
+    }
+    try {
+      return window.getComputedStyle(el).pointerEvents === 'none';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function hitTestInRoot(x, y, root) {
+    if (!root) {
+      return null;
+    }
+
+    var elements;
+    try {
+      if (root.elementsFromPoint) {
+        elements = root.elementsFromPoint(x, y);
+      } else if (root.elementFromPoint) {
+        elements = [root.elementFromPoint(x, y)];
+      } else {
+        return null;
+      }
+    } catch (e) {
+      return null;
+    }
+
+    if (!elements || !elements.length) {
+      return null;
+    }
+
+    for (var i = 0; i < elements.length; i++) {
+      var el = elements[i];
+      if (!el || el === document.documentElement) {
+        continue;
+      }
+
+      if (isPointerEventsNone(el)) {
+        continue;
+      }
+
+      if (el.tagName === 'IFRAME') {
+        var inner = hitTestIframe(el, x, y);
+        if (inner) {
+          return inner;
+        }
+        continue;
+      }
+
+      if (el.shadowRoot) {
+        var shadowHit = hitTestInRoot(x, y, el.shadowRoot);
+        if (shadowHit) {
+          return shadowHit;
+        }
+      }
+
+      return el;
+    }
+
+    return null;
+  }
+
+  function hitTestIframe(iframe, x, y) {
+    try {
+      var rect = iframe.getBoundingClientRect();
+      var doc = iframe.contentDocument;
+      if (!doc) {
+        return null;
+      }
+      return hitTestInRoot(x - rect.left, y - rect.top, doc);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function elementAt(x, y) {
+    var el = hitTestInRoot(x, y, document);
+    if (!el) {
+      return document.body || document.documentElement;
+    }
+    return el;
+  }
+
+  function findAnchor(el) {
+    if (!el) {
+      return null;
+    }
+    if (el.tagName === 'A' && el.getAttribute('href') != null) {
+      return el;
+    }
+    return el.closest ? el.closest('a[href]') : null;
   }
 
   function followAnchor(anchor) {
@@ -100,14 +292,39 @@
   }
 
   function activateElement(el) {
-    if (!el) {
+    if (!el || isDisabled(el)) {
       return;
     }
 
-    var anchor =
-      el.tagName === 'A' ? el : el.closest ? el.closest('a[href]') : null;
+    var anchor = findAnchor(el);
     if (anchor) {
       followAnchor(anchor);
+      return;
+    }
+
+    if (el.tagName === 'LABEL') {
+      var forId = el.getAttribute('for');
+      if (forId) {
+        var linked = document.getElementById(forId);
+        if (linked && !isDisabled(linked)) {
+          linked.focus();
+          if (typeof linked.click === 'function') {
+            linked.click();
+          }
+          return;
+        }
+      }
+    }
+
+    if (
+      el.tagName === 'INPUT' ||
+      el.tagName === 'TEXTAREA' ||
+      el.tagName === 'SELECT'
+    ) {
+      el.focus();
+      if (typeof el.click === 'function') {
+        el.click();
+      }
       return;
     }
 
@@ -119,10 +336,14 @@
   function dispatchHoverTransition(nextElement, x, y) {
     if (lastElement && lastElement !== nextElement) {
       lastElement.dispatchEvent(
-        createMouseEvent('mouseout', lastX, lastY, { relatedTarget: nextElement }),
+        createMouseEvent('mouseout', lastX, lastY, {
+          relatedTarget: nextElement,
+        }),
       );
       lastElement.dispatchEvent(
-        createMouseEvent('mouseleave', lastX, lastY, { relatedTarget: nextElement }),
+        createMouseEvent('mouseleave', lastX, lastY, {
+          relatedTarget: nextElement,
+        }),
       );
     }
 
@@ -136,46 +357,42 @@
     }
   }
 
-  function elementAt(x, y) {
-    var el = document.elementFromPoint(x, y);
-    if (!el) {
-      return document.body || document.documentElement;
-    }
-    return el;
-  }
-
-  function dispatchClickSequence(actionable, x, y, options) {
+  function dispatchClickSequence(target, x, y, options) {
     options = options || {};
     var button = options.button != null ? options.button : 0;
     var detail = options.detail || 1;
     var downButtons = button === 2 ? 2 : 1;
     var eventOptions = { button: button, detail: detail };
 
-    actionable.dispatchEvent(
+    target.dispatchEvent(
       createPointerEvent('pointerdown', x, y, {
         button: button,
         buttons: downButtons,
         detail: detail,
       }),
     );
-    actionable.dispatchEvent(
+    target.dispatchEvent(
       createMouseEvent('mousedown', x, y, {
         button: button,
         buttons: downButtons,
         detail: detail,
       }),
     );
-    actionable.dispatchEvent(
+    target.dispatchEvent(
       createPointerEvent('pointerup', x, y, {
         button: button,
         buttons: 0,
         detail: detail,
       }),
     );
-    actionable.dispatchEvent(
-      createMouseEvent('mouseup', x, y, { button: button, buttons: 0, detail: detail }),
+    target.dispatchEvent(
+      createMouseEvent('mouseup', x, y, {
+        button: button,
+        buttons: 0,
+        detail: detail,
+      }),
     );
-    actionable.dispatchEvent(createMouseEvent('click', x, y, eventOptions));
+    target.dispatchEvent(createMouseEvent('click', x, y, eventOptions));
   }
 
   window.__cursorPad = {
@@ -208,13 +425,16 @@
       var target = elementAt(lastX, lastY) || document.body;
       var actionable = findActionableElement(target) || target;
 
-      dispatchClickSequence(actionable, lastX, lastY, { button: button });
+      dispatchClickSequence(target, lastX, lastY, { button: button });
 
       if (button === 0) {
         activateElement(actionable);
       } else if (button === 2) {
-        actionable.dispatchEvent(
-          createMouseEvent('contextmenu', lastX, lastY, { button: 2, buttons: 0 }),
+        (actionable || target).dispatchEvent(
+          createMouseEvent('contextmenu', lastX, lastY, {
+            button: 2,
+            buttons: 0,
+          }),
         );
       }
 
@@ -230,16 +450,24 @@
       var target = elementAt(lastX, lastY) || document.body;
       var actionable = findActionableElement(target) || target;
 
-      dispatchClickSequence(actionable, lastX, lastY, { button: 0, detail: 1 });
-      dispatchClickSequence(actionable, lastX, lastY, { button: 0, detail: 2 });
+      dispatchClickSequence(target, lastX, lastY, { button: 0, detail: 1 });
+      dispatchClickSequence(target, lastX, lastY, { button: 0, detail: 2 });
       actionable.dispatchEvent(
         createMouseEvent('dblclick', lastX, lastY, { button: 0, detail: 2 }),
       );
       actionable.dispatchEvent(
-        createPointerEvent('pointerdown', lastX, lastY, { button: 0, buttons: 1, detail: 2 }),
+        createPointerEvent('pointerdown', lastX, lastY, {
+          button: 0,
+          buttons: 1,
+          detail: 2,
+        }),
       );
       actionable.dispatchEvent(
-        createPointerEvent('pointerup', lastX, lastY, { button: 0, buttons: 0, detail: 2 }),
+        createPointerEvent('pointerup', lastX, lastY, {
+          button: 0,
+          buttons: 0,
+          detail: 2,
+        }),
       );
 
       return {

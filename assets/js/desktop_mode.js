@@ -66,14 +66,6 @@
         { once: true },
       );
     }
-
-    document.addEventListener(
-      'touchstart',
-      function (e) {
-        e.preventDefault();
-      },
-      { passive: false, capture: true },
-    );
   }
 
   function installViewportGuard() {
