@@ -38,8 +38,28 @@ class TouchpadDetector extends StatefulWidget {
 class _TouchpadDetectorState extends State<TouchpadDetector> {
   final Map<int, Offset> _pointers = {};
   Offset? _lastPanPosition;
+  Offset? _lastMultiTouchCentroid;
   bool _moved = false;
   Timer? _longPressTimer;
+
+  Offset _computeCentroid() {
+    if (_pointers.isEmpty) {
+      return Offset.zero;
+    }
+    var sum = Offset.zero;
+    for (final position in _pointers.values) {
+      sum += position;
+    }
+    return sum / _pointers.length.toDouble();
+  }
+
+  void _updateMultiTouchCentroid() {
+    if (_pointers.length >= 2) {
+      _lastMultiTouchCentroid = _computeCentroid();
+    } else {
+      _lastMultiTouchCentroid = null;
+    }
+  }
 
   @override
   void dispose() {
@@ -72,10 +92,12 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
         _pointers[event.pointer] = event.position;
         if (_pointers.length == 1) {
           _lastPanPosition = event.position;
+          _lastMultiTouchCentroid = null;
           _moved = false;
           _scheduleLongPress();
         } else {
           _cancelLongPress();
+          _updateMultiTouchCentroid();
         }
       },
       onPointerMove: (event) {
@@ -83,9 +105,15 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
 
         if (_pointers.length >= 2) {
           _cancelLongPress();
-          widget.onScroll(
-            Offset(0, -event.delta.dy * widget.scrollSensitivity),
-          );
+          final centroid = _computeCentroid();
+          if (_lastMultiTouchCentroid != null) {
+            final delta =
+                (centroid - _lastMultiTouchCentroid!) * widget.scrollSensitivity;
+            if (delta != Offset.zero) {
+              widget.onScroll(Offset(-delta.dx, -delta.dy));
+            }
+          }
+          _lastMultiTouchCentroid = centroid;
           return;
         }
 
@@ -103,6 +131,7 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
         final wasSinglePointer = _pointers.length == 1;
         _pointers.remove(event.pointer);
         _cancelLongPress();
+        _updateMultiTouchCentroid();
 
         if (wasSinglePointer && !_moved) {
           widget.onTap();
@@ -110,14 +139,17 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
 
         if (_pointers.isEmpty) {
           _lastPanPosition = null;
+          _lastMultiTouchCentroid = null;
           _moved = false;
         }
       },
       onPointerCancel: (event) {
         _pointers.remove(event.pointer);
         _cancelLongPress();
+        _updateMultiTouchCentroid();
         if (_pointers.isEmpty) {
           _lastPanPosition = null;
+          _lastMultiTouchCentroid = null;
           _moved = false;
         }
       },

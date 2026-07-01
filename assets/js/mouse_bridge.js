@@ -256,6 +256,41 @@
     return el;
   }
 
+  function isScrollable(el) {
+    if (!el || el === document.documentElement) {
+      return false;
+    }
+    try {
+      var style = window.getComputedStyle(el);
+      var overflowY = style.overflowY;
+      var overflowX = style.overflowX;
+      var canScrollY =
+        (overflowY === 'auto' ||
+          overflowY === 'scroll' ||
+          overflowY === 'overlay') &&
+        el.scrollHeight > el.clientHeight;
+      var canScrollX =
+        (overflowX === 'auto' ||
+          overflowX === 'scroll' ||
+          overflowX === 'overlay') &&
+        el.scrollWidth > el.clientWidth;
+      return canScrollY || canScrollX;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function findScrollableAt(x, y) {
+    var el = elementAt(x, y);
+    while (el && el !== document.documentElement) {
+      if (isScrollable(el)) {
+        return el;
+      }
+      el = el.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+
   function findAnchor(el) {
     if (!el) {
       return null;
@@ -546,9 +581,12 @@
         );
       }
 
-      var consumed = target.dispatchEvent(wheelEvent);
-      if (!consumed) {
-        window.scrollBy(deltaX, deltaY);
+      target.dispatchEvent(wheelEvent);
+
+      var scrollable = findScrollableAt(lastX, lastY);
+      if (scrollable) {
+        scrollable.scrollLeft += deltaX;
+        scrollable.scrollTop += deltaY;
       }
     },
   };
