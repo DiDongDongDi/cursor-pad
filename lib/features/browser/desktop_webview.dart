@@ -8,6 +8,8 @@ import '../../core/constants/desktop_user_agent.dart';
 import '../../core/injection/script_loader.dart';
 import 'browser_controller.dart';
 
+typedef CreateWindowCallback = bool Function(String? url);
+
 /// Hosts [InAppWebView] in an isolated subtree so parent rebuilds
 /// (progress, cursor, toolbar) do not recreate the platform view.
 class DesktopWebView extends StatefulWidget {
@@ -18,6 +20,7 @@ class DesktopWebView extends StatefulWidget {
     this.initialHtml,
     this.hostKey = 0,
     this.onSizeChanged,
+    this.onCreateWindow,
   });
 
   final BrowserController controller;
@@ -25,6 +28,7 @@ class DesktopWebView extends StatefulWidget {
   final String? initialHtml;
   final int hostKey;
   final ValueChanged<Size>? onSizeChanged;
+  final CreateWindowCallback? onCreateWindow;
 
   @override
   State<DesktopWebView> createState() => _DesktopWebViewState();
@@ -88,6 +92,7 @@ class _DesktopWebViewState extends State<DesktopWebView> {
             mouseBridgeScript: _mouseBridgeScript!,
             initialHtml: widget.initialHtml,
             onCreated: widget.onCreated,
+            onCreateWindow: widget.onCreateWindow,
           ),
         );
       },
@@ -103,6 +108,7 @@ class _InAppWebViewHost extends StatefulWidget {
     required this.mouseBridgeScript,
     required this.onCreated,
     this.initialHtml,
+    this.onCreateWindow,
   });
 
   final BrowserController controller;
@@ -110,6 +116,7 @@ class _InAppWebViewHost extends StatefulWidget {
   final String mouseBridgeScript;
   final VoidCallback onCreated;
   final String? initialHtml;
+  final CreateWindowCallback? onCreateWindow;
 
   @override
   State<_InAppWebViewHost> createState() => _InAppWebViewHostState();
@@ -158,6 +165,8 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
           mediaPlaybackRequiresUserGesture: false,
           useHybridComposition: true,
           transparentBackground: false,
+          supportMultipleWindows: true,
+          javaScriptCanOpenWindowsAutomatically: true,
         ),
         initialUserScripts: UnmodifiableListView<UserScript>([
           UserScript(
@@ -228,6 +237,14 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
             );
           }
           widget.controller.handleRenderProcessGone();
+        },
+        onCreateWindow: (controller, createWindowAction) async {
+          final callback = widget.onCreateWindow;
+          if (callback == null) {
+            return false;
+          }
+          final url = createWindowAction.request.url?.toString();
+          return callback(url);
         },
       ),
     );

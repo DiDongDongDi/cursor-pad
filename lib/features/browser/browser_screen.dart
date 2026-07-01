@@ -7,8 +7,12 @@ import '../bookmarks/bookmark.dart';
 import '../settings/browser_settings.dart';
 import '../browser/browser_controller.dart';
 import '../browser/browser_state.dart';
+import '../browser/browser_tab.dart';
+import '../browser/browser_tab_bar.dart';
 import '../browser/browser_toolbar.dart';
 import '../browser/desktop_webview.dart';
+import '../browser/tab_bar_hit_tester.dart';
+import '../browser/tab_manager.dart';
 import '../browser/toolbar_hit_tester.dart';
 import '../browser/toolbar_visibility.dart';
 import '../cursor/cursor_overlay.dart';
@@ -26,54 +30,115 @@ class _BrowserScreenState extends State<BrowserScreen>
     with WidgetsBindingObserver {
   static const double _toolbarContentHeight = 52;
 
-  late final BrowserController _browserController;
+  late final TabManager _tabManager;
   late final TextEditingController _urlController;
   late final FocusNode _urlFocusNode;
   late final ToolbarVisibilityController _toolbarVisibility;
   late final ToolbarHitTester _toolbarHitTester;
+  late final TabBarHitTester _tabBarHitTester;
   late final ValueNotifier<Offset> _cursorPosition;
-  late final ValueNotifier<bool> _webViewReady;
   late final ValueNotifier<bool> _isBookmarked;
   late CursorState _cursorState;
   final GlobalKey _bodyStackKey = GlobalKey();
-  bool _initialHtmlReady = false;
-  String? _initialBookmarksHtml;
+  final Map<String, VoidCallback> _tabStateListeners = {};
 
   Size _viewportSize = Size.zero;
-  double _lastToolbarHeight = -1;
-  int _webViewKey = 0;
+  double _lastChromeHeight = -1;
+
+  BrowserTab get _activeTab => _tabManager.activeTab;
+  BrowserController get _activeController => _activeTab.controller;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _browserController = BrowserController(settings: const BrowserSettings());
-    _browserController.onStateChanged = _onBrowserStateChanged;
-    _browserController.onPageReady = _onPageReady;
-    _browserController.onWebViewNeedsRecreate = _recreateWebView;
+    _tabManager = TabManager(settings: const BrowserSettings());
+    _tabManager.addListener(_onTabManagerChanged);
     _urlController = TextEditingController(
-      text: _browserController.settings.homeUrl,
+      text: _activeController.settings.homeUrl,
     );
     _urlFocusNode = FocusNode();
     _urlFocusNode.addListener(_onUrlFocusChanged);
     _toolbarVisibility = ToolbarVisibilityController();
     _toolbarVisibility.addListener(_onToolbarVisibilityChanged);
     _toolbarHitTester = ToolbarHitTester();
-    _cursorState = CursorState(position: Offset.zero);
-    _cursorPosition = ValueNotifier(Offset.zero);
-    _webViewReady = ValueNotifier(false);
+    _tabBarHitTester = TabBarHitTester();
+    _cursorState = _activeTab.cursorState;
+    _cursorPosition = ValueNotifier(_cursorState.position);
     _isBookmarked = ValueNotifier(false);
+    _bindTabCallbacks(_activeTab);
     unawaited(_prepareInitialContent());
   }
 
   Future<void> _prepareInitialContent() async {
-    await _browserController.prepareInitialBookmarksHtml();
+    await _tabManager.prepareInitialContent();
+    if (!mounted) {
+      return;
+    }
+    for (final tab in _tabManager.tabs) {
+      _bindTabCallbacks(tab);
+    }
+    setState(() {});
+  }
+
+  void _bindTabCallbacks(BrowserTab tab) {
+    if (_tabStateListeners.containsKey(tab.id)) {
+      return;
+    }
+
+    void onStateChanged(BrowserState state) {
+      unawaited(_onBrowserStateChanged(tab, state));
+    }
+
+    void onPageReady() {
+      if (_activeTab.id == tab.id) {
+        unawaited(_syncCursorToPageImmediate());
+      }
+    }
+
+    void onWebViewNeedsRecreate() {
+      _recreateWebView(tab);
+    }
+
+    tab.controller.onStateChanged = onStateChanged;
+    tab.controller.onPageReady = onPageReady;
+    tab.controller.onWebViewNeedsRecreate = onWebViewNeedsRecreate;
+    _tabStateListeners[tab.id] = () {
+      tab.controller.onStateChanged = null;
+      tab.controller.onPageReady = null;
+      tab.controller.onWebViewNeedsRecreate = null;
+    };
+  }
+
+  void _unbindTabCallbacks(BrowserTab tab) {
+    _tabStateListeners.remove(tab.id)?.call();
+  }
+
+  void _onTabManagerChanged() {
     if (!mounted) {
       return;
     }
     setState(() {
-      _initialHtmlReady = true;
-      _initialBookmarksHtml = _browserController.initialBookmarksHtml;
+      for (final tab in _tabManager.tabs) {
+        _bindTabCallbacks(tab);
+      }
+    });
+    _syncActiveTabUi();
+  }
+
+  void _syncActiveTabUi() {
+    _cursorState = _activeTab.cursorState;
+    _cursorPosition.value = _cursorState.position;
+    final state = _activeController.state;
+    _urlController.text = state.currentUrl.isNotEmpty
+        ? state.currentUrl
+        : _activeController.settings.homeUrl;
+    unawaited(_refreshBookmarkState());
+    unawaited(_syncCursorToPageImmediate());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _syncViewportFromLayout();
+      }
     });
   }
 
@@ -85,17 +150,20 @@ class _BrowserScreenState extends State<BrowserScreen>
     _toolbarVisibility.removeListener(_onToolbarVisibilityChanged);
     _toolbarVisibility.dispose();
     _cursorPosition.dispose();
-    _webViewReady.dispose();
     _isBookmarked.dispose();
     _urlController.dispose();
-    _browserController.dispose();
+    for (final tab in _tabManager.tabs) {
+      _unbindTabCallbacks(tab);
+    }
+    _tabManager.removeListener(_onTabManagerChanged);
+    _tabManager.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _viewportSize != Size.zero) {
-      _browserController.syncViewport(
+      _activeController.syncViewport(
         _viewportSize.width,
         _viewportSize.height,
       );
@@ -125,27 +193,29 @@ class _BrowserScreenState extends State<BrowserScreen>
     });
   }
 
-  double _toolbarHeight(BuildContext context) {
+  double _chromeHeight(BuildContext context) {
     if (!_toolbarVisibility.visible) {
       return 0;
     }
-    return MediaQuery.paddingOf(context).top + _toolbarContentHeight;
+    return MediaQuery.paddingOf(context).top +
+        BrowserTabBar.height +
+        _toolbarContentHeight;
   }
 
   Size _cursorBounds(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
-    final toolbarHeight = _toolbarHeight(context);
+    final chromeHeight = _chromeHeight(context);
     return Size(
       screenSize.width,
-      toolbarHeight + _viewportSize.height,
+      chromeHeight + _viewportSize.height,
     );
   }
 
   Offset _webViewCursorPosition(BuildContext context) {
-    final toolbarHeight = _toolbarHeight(context);
+    final chromeHeight = _chromeHeight(context);
     return Offset(
       _cursorState.position.dx,
-      (_cursorState.position.dy - toolbarHeight).clamp(0.0, _viewportSize.height),
+      (_cursorState.position.dy - chromeHeight).clamp(0.0, _viewportSize.height),
     );
   }
 
@@ -162,26 +232,26 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   void _syncViewportFromLayout() {
-    final toolbarHeight = _toolbarHeight(context);
+    final chromeHeight = _chromeHeight(context);
     final screenSize = MediaQuery.sizeOf(context);
     final contentSize = Size(
       screenSize.width,
-      (screenSize.height - toolbarHeight).clamp(0, screenSize.height),
+      (screenSize.height - chromeHeight).clamp(0, screenSize.height),
     );
 
-    final oldToolbarHeight = _lastToolbarHeight;
+    final oldChromeHeight = _lastChromeHeight;
     final cursorBounds = Size(
       screenSize.width,
-      toolbarHeight + contentSize.height,
+      chromeHeight + contentSize.height,
     );
 
     if (contentSize == _viewportSize &&
-        toolbarHeight == _lastToolbarHeight &&
+        chromeHeight == _lastChromeHeight &&
         cursorBounds.height > 0) {
       return;
     }
 
-    _lastToolbarHeight = toolbarHeight;
+    _lastChromeHeight = chromeHeight;
     _viewportSize = contentSize;
 
     if (_cursorState.position == Offset.zero && cursorBounds != Size.zero) {
@@ -189,13 +259,13 @@ class _BrowserScreenState extends State<BrowserScreen>
     } else if (cursorBounds != Size.zero) {
       var pos = _cursorState.position;
 
-      if (toolbarHeight > oldToolbarHeight && oldToolbarHeight == 0) {
-        pos = Offset(pos.dx, pos.dy + toolbarHeight);
-      } else if (toolbarHeight == 0 && oldToolbarHeight > 0) {
-        if (pos.dy < oldToolbarHeight) {
+      if (chromeHeight > oldChromeHeight && oldChromeHeight == 0) {
+        pos = Offset(pos.dx, pos.dy + chromeHeight);
+      } else if (chromeHeight == 0 && oldChromeHeight > 0) {
+        if (pos.dy < oldChromeHeight) {
           pos = Offset(pos.dx, 0);
         } else {
-          pos = Offset(pos.dx, pos.dy - oldToolbarHeight);
+          pos = Offset(pos.dx, pos.dy - oldChromeHeight);
         }
       }
 
@@ -204,24 +274,41 @@ class _BrowserScreenState extends State<BrowserScreen>
         pos.dy.clamp(0.0, cursorBounds.height),
       );
     }
+    _activeTab.cursorState = _cursorState;
     _cursorPosition.value = _cursorState.position;
 
-    _browserController.syncViewport(contentSize.width, contentSize.height);
+    _activeController.syncViewport(contentSize.width, contentSize.height);
     _syncCursorToPage();
   }
 
-  Future<void> _onBrowserStateChanged(BrowserState state) async {
+  Future<void> _refreshBookmarkState() async {
+    final state = _activeController.state;
     final bookmarked = BrowserController.isBookmarksHomeUrl(state.currentUrl)
         ? false
-        : await _browserController.bookmarkRepository.containsUrl(
+        : await _activeController.bookmarkRepository.containsUrl(
             state.currentUrl,
           );
+    if (mounted && _activeTab.id == _tabManager.activeTab.id) {
+      _isBookmarked.value = bookmarked;
+    }
+  }
 
+  Future<void> _onBrowserStateChanged(
+    BrowserTab tab,
+    BrowserState state,
+  ) async {
     if (!mounted) {
       return;
     }
 
-    _isBookmarked.value = bookmarked;
+    if (tab.id != _activeTab.id) {
+      setState(() {});
+      return;
+    }
+
+    final chromeHeight = _chromeHeight(context);
+    await _refreshBookmarkState();
+
     if (state.currentUrl.isNotEmpty &&
         _urlController.text != state.currentUrl) {
       _urlController.text = state.currentUrl;
@@ -232,7 +319,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     } else if (!_urlFocusNode.hasFocus) {
       _toolbarVisibility.onCursorMove(
         _cursorState.position.dy,
-        toolbarHeight: _toolbarHeight(context),
+        chromeHeight: chromeHeight,
       );
     }
   }
@@ -243,28 +330,25 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     _cursorState.centerIn(bounds);
+    _activeTab.cursorState = _cursorState;
     _cursorPosition.value = _cursorState.position;
     _syncCursorToPage();
   }
 
   Future<void> _syncCursorToPage() async {
-    if (!_webViewReady.value) {
+    if (!_activeTab.webViewReady) {
       return;
     }
     final webViewPos = _webViewCursorPosition(context);
-    await _browserController.moveCursor(webViewPos.dx, webViewPos.dy);
+    await _activeController.moveCursor(webViewPos.dx, webViewPos.dy);
   }
 
   Future<void> _syncCursorToPageImmediate() async {
-    if (!_webViewReady.value) {
+    if (!_activeTab.webViewReady) {
       return;
     }
     final webViewPos = _webViewCursorPosition(context);
-    await _browserController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
-  }
-
-  void _onPageReady() {
-    unawaited(_syncCursorToPageImmediate());
+    await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
   }
 
   void _onMove(Offset delta) {
@@ -273,19 +357,50 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     _cursorState.moveBy(delta, bounds);
+    _activeTab.cursorState = _cursorState;
     _cursorPosition.value = _cursorState.position;
     _toolbarVisibility.onCursorMove(
       _cursorState.position.dy,
-      toolbarHeight: _toolbarHeight(context),
+      chromeHeight: _chromeHeight(context),
     );
     _syncCursorToPage();
   }
 
-  bool _isCursorInToolbar(BuildContext context) {
+  bool _isCursorInChrome(BuildContext context) {
     if (!_toolbarVisibility.visible) {
       return false;
     }
-    return _cursorState.position.dy < _toolbarHeight(context);
+    return _cursorState.position.dy < _chromeHeight(context);
+  }
+
+  Future<void> _handleTabBarTap(TabBarHitResult result) async {
+    switch (result.target) {
+      case TabBarHitTarget.newTab:
+        if (!_tabManager.createTab()) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('标签页数量已达上限')),
+            );
+          }
+        }
+      case TabBarHitTarget.tab:
+        final index = result.tabIndex;
+        if (index != null) {
+          _tabManager.switchTab(index);
+          _syncActiveTabUi();
+        }
+      case TabBarHitTarget.closeTab:
+        final index = result.tabIndex;
+        if (index != null &&
+            index < _tabManager.tabs.length &&
+            _tabManager.canCloseTab) {
+          final removedTab = _tabManager.tabs[index];
+          if (_tabManager.closeTab(index)) {
+            _unbindTabCallbacks(removedTab);
+            _syncActiveTabUi();
+          }
+        }
+    }
   }
 
   Future<void> _handleToolbarTap() async {
@@ -295,21 +410,21 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
 
     final target = _toolbarHitTester.hitTest(globalPos);
-    final state = _browserController.state;
+    final state = _activeController.state;
 
     switch (target) {
       case ToolbarHitTarget.back:
         if (state.canGoBack) {
-          await _browserController.goBack();
+          await _activeController.goBack();
         }
       case ToolbarHitTarget.forward:
         if (state.canGoForward) {
-          await _browserController.goForward();
+          await _activeController.goForward();
         }
       case ToolbarHitTarget.reload:
-        await _browserController.reload();
+        await _activeController.reload();
       case ToolbarHitTarget.home:
-        await _browserController.loadUrl(BrowserSettings.bookmarksHomeUrl);
+        await _activeController.loadUrl(BrowserSettings.bookmarksHomeUrl);
       case ToolbarHitTarget.bookmark:
         await _onBookmarkPressed();
       case ToolbarHitTarget.urlField:
@@ -320,44 +435,63 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
   }
 
+  Future<void> _handleChromeTap() async {
+    final globalPos = _cursorGlobalPosition();
+    if (globalPos == null) {
+      return;
+    }
+
+    final tabHit = _tabBarHitTester.hitTest(
+      globalPos,
+      tabIds: _tabManager.tabs.map((tab) => tab.id).toList(),
+      canCloseTab: _tabManager.canCloseTab,
+    );
+    if (tabHit != null) {
+      await _handleTabBarTap(tabHit);
+      return;
+    }
+
+    await _handleToolbarTap();
+  }
+
   Future<void> _onTap() async {
-    if (_isCursorInToolbar(context)) {
-      await _handleToolbarTap();
+    if (_isCursorInChrome(context)) {
+      await _handleChromeTap();
       return;
     }
 
     await _syncCursorToPageImmediate();
-    await _browserController.click();
+    await _activeController.click();
   }
 
   Future<void> _onDoubleTap() async {
-    if (_isCursorInToolbar(context)) {
+    if (_isCursorInChrome(context)) {
       return;
     }
 
     await _syncCursorToPageImmediate();
-    await _browserController.doubleClick();
+    await _activeController.doubleClick();
   }
 
   Future<void> _onLongPress() async {
-    if (_isCursorInToolbar(context)) {
+    if (_isCursorInChrome(context)) {
       return;
     }
 
     await _syncCursorToPageImmediate();
-    await _browserController.click(button: 2);
+    await _activeController.click(button: 2);
   }
 
   Future<void> _onScroll(Offset delta) async {
-    await _browserController.scroll(delta.dx, delta.dy);
+    await _activeController.scroll(delta.dx, delta.dy);
   }
 
   Future<void> _onPinch(double scaleFactor) async {
-    await _browserController.zoomBy(scaleFactor);
+    await _activeController.zoomBy(scaleFactor);
   }
 
   Future<void> _onBookmarkPressed() async {
-    final currentUrl = _browserController.state.currentUrl;
+    final currentUrl = _activeController.state.currentUrl;
     if (currentUrl.isEmpty ||
         BrowserController.isBookmarksHomeUrl(currentUrl)) {
       return;
@@ -367,8 +501,8 @@ class _BrowserScreenState extends State<BrowserScreen>
       context: context,
       builder: (context) {
         return _BookmarkTitleDialog(
-          initialTitle: _browserController.state.title.isNotEmpty
-              ? _browserController.state.title
+          initialTitle: _activeController.state.title.isNotEmpty
+              ? _activeController.state.title
               : currentUrl,
         );
       },
@@ -378,7 +512,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    await _browserController.bookmarkRepository.add(
+    await _activeController.bookmarkRepository.add(
       Bookmark(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         title: title.isEmpty ? currentUrl : title,
@@ -394,37 +528,43 @@ class _BrowserScreenState extends State<BrowserScreen>
     _isBookmarked.value = true;
 
     if (BrowserController.isBookmarksHomeUrl(
-      _browserController.state.currentUrl,
+      _activeController.state.currentUrl,
     )) {
-      await _browserController.loadBookmarksHome();
+      await _activeController.loadBookmarksHome();
     }
   }
 
-  void _recreateWebView() {
+  void _recreateWebView(BrowserTab tab) {
     if (!mounted) {
       return;
     }
-    _webViewReady.value = false;
-    setState(() => _webViewKey++);
+    _tabManager.recreateWebViewForTab(tab);
   }
 
   Future<void> _onUrlSubmitted(String url) async {
     _urlFocusNode.unfocus();
-    await _browserController.loadUrl(url);
+    await _activeController.loadUrl(url);
   }
 
-  void _onWebViewCreated() {
-    _webViewReady.value = true;
+  void _onWebViewCreated(BrowserTab tab) {
+    tab.webViewReady = true;
+    if (tab.id != _activeTab.id) {
+      return;
+    }
     _syncViewportFromLayout();
     _centerCursor();
   }
 
-  void _onWebViewSizeChanged(Size size) {
-    if (size == _viewportSize || size == Size.zero) {
+  void _onWebViewSizeChanged(BrowserTab tab, Size size) {
+    if (tab.id != _activeTab.id || size == Size.zero) {
+      return;
+    }
+    if (size == _viewportSize) {
       return;
     }
     _viewportSize = size;
-    _lastToolbarHeight = MediaQuery.sizeOf(context).height - size.height;
+    _lastChromeHeight =
+        MediaQuery.sizeOf(context).height - size.height;
 
     final bounds = _cursorBounds(context);
     if (_cursorState.position == Offset.zero) {
@@ -432,9 +572,10 @@ class _BrowserScreenState extends State<BrowserScreen>
     } else {
       _cursorState.moveBy(Offset.zero, bounds);
     }
+    _activeTab.cursorState = _cursorState;
     _cursorPosition.value = _cursorState.position;
 
-    unawaited(_browserController.syncViewport(size.width, size.height));
+    unawaited(_activeController.syncViewport(size.width, size.height));
     unawaited(_syncCursorToPage());
   }
 
@@ -444,8 +585,8 @@ class _BrowserScreenState extends State<BrowserScreen>
 
     return Scaffold(
       body: TouchpadDetector(
-        sensitivity: _browserController.settings.cursorSensitivity,
-        scrollSensitivity: _browserController.settings.scrollSensitivity,
+        sensitivity: _tabManager.settings.cursorSensitivity,
+        scrollSensitivity: _tabManager.settings.scrollSensitivity,
         onMove: _onMove,
         onTap: _onTap,
         onDoubleTap: _onDoubleTap,
@@ -465,28 +606,45 @@ class _BrowserScreenState extends State<BrowserScreen>
                     child: ListenableBuilder(
                       listenable: _toolbarVisibility,
                       builder: (context, _) {
-                        return ValueListenableBuilder<BrowserState>(
-                          valueListenable: _browserController.stateNotifier,
-                          builder: (context, state, _) {
-                            return ValueListenableBuilder<bool>(
-                              valueListenable: _isBookmarked,
-                              builder: (context, bookmarked, _) {
-                                return BrowserToolbar(
-                                  state: state,
-                                  urlController: _urlController,
-                                  urlFocusNode: _urlFocusNode,
-                                  hitTester: _toolbarHitTester,
-                                  onSubmit: _onUrlSubmitted,
-                                  onBack: _browserController.goBack,
-                                  onForward: _browserController.goForward,
-                                  onReload: _browserController.reload,
-                                  onHome: () => _browserController.loadUrl(
-                                    BrowserSettings.bookmarksHomeUrl,
-                                  ),
-                                  onBookmark: _onBookmarkPressed,
-                                  isBookmarked: bookmarked,
-                                );
-                              },
+                        return ListenableBuilder(
+                          listenable: _tabManager,
+                          builder: (context, _) {
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                BrowserTabBar(
+                                  tabs: _tabManager.tabs,
+                                  activeIndex: _tabManager.activeIndex,
+                                  hitTester: _tabBarHitTester,
+                                  canCloseTab: _tabManager.canCloseTab,
+                                ),
+                                ValueListenableBuilder<BrowserState>(
+                                  valueListenable:
+                                      _activeController.stateNotifier,
+                                  builder: (context, state, _) {
+                                    return ValueListenableBuilder<bool>(
+                                      valueListenable: _isBookmarked,
+                                      builder: (context, bookmarked, _) {
+                                        return BrowserToolbar(
+                                          state: state,
+                                          urlController: _urlController,
+                                          urlFocusNode: _urlFocusNode,
+                                          hitTester: _toolbarHitTester,
+                                          onSubmit: _onUrlSubmitted,
+                                          onBack: _activeController.goBack,
+                                          onForward: _activeController.goForward,
+                                          onReload: _activeController.reload,
+                                          onHome: () => _activeController.loadUrl(
+                                            BrowserSettings.bookmarksHomeUrl,
+                                          ),
+                                          onBookmark: _onBookmarkPressed,
+                                          isBookmarked: bookmarked,
+                                        );
+                                      },
+                                    );
+                                  },
+                                ),
+                              ],
                             );
                           },
                         );
@@ -499,23 +657,48 @@ class _BrowserScreenState extends State<BrowserScreen>
                     fit: StackFit.expand,
                     children: [
                       Positioned.fill(
-                        child: _initialHtmlReady || _webViewKey > 0
-                            ? DesktopWebView(
-                                key: ValueKey('desktop-webview-$_webViewKey'),
-                                hostKey: _webViewKey,
-                                controller: _browserController,
-                                initialHtml: _webViewKey == 0
-                                    ? _initialBookmarksHtml
-                                    : null,
-                                onCreated: _onWebViewCreated,
-                                onSizeChanged: _onWebViewSizeChanged,
+                        child: _tabManager.initialHtmlReady ||
+                                _tabManager.tabs.any((tab) => tab.webViewKey > 0)
+                            ? ListenableBuilder(
+                                listenable: _tabManager,
+                                builder: (context, _) {
+                                  return IndexedStack(
+                                    index: _tabManager.activeIndex,
+                                    sizing: StackFit.expand,
+                                    children: [
+                                      for (final tab in _tabManager.tabs)
+                                        DesktopWebView(
+                                          key: ValueKey(
+                                            'tab-${tab.id}-${tab.webViewKey}',
+                                          ),
+                                          hostKey: tab.webViewKey,
+                                          controller: tab.controller,
+                                          initialHtml: tab.webViewKey == 0
+                                              ? tab.initialBookmarksHtml
+                                              : null,
+                                          onCreated: () =>
+                                              _onWebViewCreated(tab),
+                                          onSizeChanged: (size) =>
+                                              _onWebViewSizeChanged(tab, size),
+                                          onCreateWindow: (url) {
+                                            if (url == null || url.isEmpty) {
+                                              return false;
+                                            }
+                                            return _tabManager.createTab(
+                                              url: url,
+                                            );
+                                          },
+                                        ),
+                                    ],
+                                  );
+                                },
                               )
                             : const Center(
                                 child: CircularProgressIndicator(),
                               ),
                       ),
                       ValueListenableBuilder<int>(
-                        valueListenable: _browserController.progressNotifier,
+                        valueListenable: _activeController.progressNotifier,
                         builder: (context, progress, _) {
                           if (progress >= 100 || progress <= 0) {
                             return const SizedBox.shrink();
@@ -536,14 +719,9 @@ class _BrowserScreenState extends State<BrowserScreen>
             ValueListenableBuilder<Offset>(
               valueListenable: _cursorPosition,
               builder: (context, position, _) {
-                return ValueListenableBuilder<bool>(
-                  valueListenable: _webViewReady,
-                  builder: (context, ready, _) {
-                    return CursorOverlay(
-                      position: position,
-                      visible: ready,
-                    );
-                  },
+                return CursorOverlay(
+                  position: position,
+                  visible: _activeTab.webViewReady,
                 );
               },
             ),
