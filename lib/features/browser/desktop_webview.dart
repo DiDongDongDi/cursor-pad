@@ -148,6 +148,7 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
           javaScriptEnabled: true,
           useWideViewPort: true,
           loadWithOverviewMode: false,
+          textZoom: 100,
           supportZoom: false,
           builtInZoomControls: false,
           displayZoomControls: false,

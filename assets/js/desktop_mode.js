@@ -2,7 +2,18 @@
   'use strict';
 
   var VIEWPORT_WIDTH = 1280;
+  var VIEWPORT_HEIGHT = 720;
   var SCREEN_WIDTH = 1280;
+  var _heightRatio = null;
+
+  function updateViewportDimensions() {
+    if (_heightRatio == null) {
+      var iw = window.innerWidth || VIEWPORT_WIDTH;
+      var ih = window.innerHeight || VIEWPORT_HEIGHT;
+      _heightRatio = ih / Math.max(iw, 1);
+    }
+    VIEWPORT_HEIGHT = Math.round(VIEWPORT_WIDTH * _heightRatio);
+  }
 
   function ensureViewportMeta() {
     var meta = document.querySelector('meta[name="viewport"]');
@@ -22,6 +33,83 @@
       return;
     }
     meta.content = desired;
+  }
+
+  function patchScreenDimensions() {
+    updateViewportDimensions();
+
+    try {
+      Object.defineProperty(window, 'innerWidth', {
+        get: function () {
+          return VIEWPORT_WIDTH;
+        },
+        configurable: true,
+      });
+      Object.defineProperty(window, 'outerWidth', {
+        get: function () {
+          return VIEWPORT_WIDTH;
+        },
+        configurable: true,
+      });
+      Object.defineProperty(window, 'innerHeight', {
+        get: function () {
+          return VIEWPORT_HEIGHT;
+        },
+        configurable: true,
+      });
+      Object.defineProperty(window, 'outerHeight', {
+        get: function () {
+          return VIEWPORT_HEIGHT;
+        },
+        configurable: true,
+      });
+    } catch (e) {
+      /* ignore */
+    }
+
+    try {
+      Object.defineProperty(window.screen, 'width', {
+        get: function () {
+          return VIEWPORT_WIDTH;
+        },
+        configurable: true,
+      });
+      Object.defineProperty(window.screen, 'height', {
+        get: function () {
+          return VIEWPORT_HEIGHT;
+        },
+        configurable: true,
+      });
+      Object.defineProperty(window.screen, 'availWidth', {
+        get: function () {
+          return VIEWPORT_WIDTH;
+        },
+        configurable: true,
+      });
+      Object.defineProperty(window.screen, 'availHeight', {
+        get: function () {
+          return VIEWPORT_HEIGHT;
+        },
+        configurable: true,
+      });
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function rewriteMediaQuery(query) {
+    return query
+      .replace(/max-device-width/gi, 'max-width')
+      .replace(/min-device-width/gi, 'min-width')
+      .replace(/\(hover:\s*none\)/gi, '(hover: hover)')
+      .replace(/\(pointer:\s*coarse\)/gi, '(pointer: fine)');
+  }
+
+  function patchMatchMedia() {
+    var original = window.matchMedia.bind(window);
+    window.matchMedia = function (query) {
+      return original(rewriteMediaQuery(query));
+    };
   }
 
   function patchNavigator() {
@@ -48,13 +136,52 @@
     }
   }
 
+  function patchUserAgentData() {
+    var uaData = navigator.userAgentData;
+    if (!uaData) {
+      return;
+    }
+
+    try {
+      var brands = uaData.brands ? uaData.brands.slice() : [];
+      var originalGetHighEntropyValues =
+        uaData.getHighEntropyValues.bind(uaData);
+
+      var fakeUaData = {
+        brands: brands,
+        mobile: false,
+        platform: 'Windows',
+        getHighEntropyValues: function (hints) {
+          return originalGetHighEntropyValues(hints).then(function (values) {
+            values.mobile = false;
+            values.platform = 'Windows';
+            if (hints.indexOf('platformVersion') !== -1) {
+              values.platformVersion = '10.0.0';
+            }
+            return values;
+          });
+        },
+      };
+
+      Object.defineProperty(navigator, 'userAgentData', {
+        get: function () {
+          return fakeUaData;
+        },
+        configurable: true,
+      });
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
   function patchTouchDetection() {
     window.ontouchstart = undefined;
     document.ontouchstart = undefined;
 
     var style = document.createElement('style');
     style.textContent =
-      '*, *::before, *::after { touch-action: none !important; }';
+      '*, *::before, *::after { touch-action: none !important; }' +
+      'html { -webkit-text-size-adjust: 100% !important; text-size-adjust: 100% !important; }';
     if (document.head) {
       document.head.appendChild(style);
     } else {
@@ -103,6 +230,13 @@
     window.addEventListener('popstate', ensureViewportMeta);
   }
 
+  updateViewportDimensions();
+  patchScreenDimensions();
+  patchMatchMedia();
+  patchNavigator();
+  patchUserAgentData();
+  patchTouchDetection();
+
   if (document.head) {
     ensureViewportMeta();
   } else {
@@ -114,9 +248,6 @@
       { once: true },
     );
   }
-
-  patchNavigator();
-  patchTouchDetection();
 
   if (document.documentElement) {
     installViewportGuard();
@@ -132,6 +263,7 @@
       if (screenWidth != null) {
         SCREEN_WIDTH = Math.max(screenWidth, 1);
       }
+      updateViewportDimensions();
       ensureViewportMeta();
     },
   };
