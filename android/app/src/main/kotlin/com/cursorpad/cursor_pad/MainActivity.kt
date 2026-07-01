@@ -38,7 +38,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun simulateClickAt(x: Float, y: Float): Boolean {
-        val webView = findWebView(window.decorView) ?: return false
+        val webView = findVisibleWebView(window.decorView) ?: return false
 
         // Flutter passes logical pixels (dp); MotionEvent expects view pixels.
         val density = webView.resources.displayMetrics.density
@@ -105,19 +105,27 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun showImeForWebView(): Boolean {
-        val webView = findWebView(window.decorView) ?: return false
+        val webView = findVisibleWebView(window.decorView) ?: return false
         webView.requestFocus()
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
         return imm.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
     }
 
-    private fun findWebView(view: View): WebView? {
-        if (view is WebView) {
-            return view
+    private fun isVisibleWebView(view: View): Boolean {
+        return view is WebView &&
+            view.visibility == View.VISIBLE &&
+            view.isShown &&
+            view.width > 0 &&
+            view.height > 0
+    }
+
+    private fun findVisibleWebView(view: View): WebView? {
+        if (isVisibleWebView(view)) {
+            return view as WebView
         }
         if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                val found = findWebView(view.getChildAt(i))
+            for (i in view.childCount - 1 downTo 0) {
+                val found = findVisibleWebView(view.getChildAt(i))
                 if (found != null) {
                     return found
                 }
