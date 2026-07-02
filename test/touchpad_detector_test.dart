@@ -8,6 +8,10 @@ void main() {
     required void Function(Offset delta) onMove,
     required void Function(Offset delta) onScroll,
     double moveThreshold = 0,
+    void Function()? onTap,
+    void Function()? onDoubleTap,
+    void Function()? onButtonDown,
+    void Function()? onButtonUp,
   }) {
     return MaterialApp(
       home: TouchpadDetector(
@@ -15,9 +19,10 @@ void main() {
         scrollSensitivity: 1.0,
         sensitivity: 1.0,
         onMove: onMove,
-        onTap: () {},
-        onDoubleTap: () {},
-        onTripleTap: () {},
+        onTap: onTap ?? () {},
+        onDoubleTap: onDoubleTap ?? () {},
+        onButtonDown: onButtonDown ?? () {},
+        onButtonUp: onButtonUp ?? () {},
         onLongPress: () {},
         onScroll: onScroll,
         child: const SizedBox.expand(),
@@ -190,34 +195,120 @@ void main() {
     expectNoLargeMoveDeltas(moveDeltas);
   });
 
-  testWidgets('triple tap fires onTripleTap after three quick taps', (tester) async {
-    var tripleTapCount = 0;
-    var singleTapCount = 0;
+  testWidgets('first tap fires onTap immediately', (tester) async {
+    var tapCount = 0;
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: TouchpadDetector(
-          onMove: (_) {},
-          onTap: () => singleTapCount++,
-          onDoubleTap: () {},
-          onTripleTap: () => tripleTapCount++,
-          onLongPress: () {},
-          onScroll: (_) {},
-          child: const SizedBox.expand(),
-        ),
+      buildTouchpad(
+        onMove: (_) {},
+        onScroll: (_) {},
+        onTap: () => tapCount++,
       ),
     );
 
     final finger = await tester.createGesture();
-    for (var i = 0; i < 3; i++) {
-      await finger.down(const Offset(100, 100));
-      await tester.pump();
-      await finger.up();
-      await tester.pump();
-    }
-    await tester.pump(const Duration(milliseconds: 400));
+    await finger.down(const Offset(100, 100));
+    await tester.pump();
+    await finger.up();
+    await tester.pump();
 
-    expect(tripleTapCount, 1);
-    expect(singleTapCount, 0);
+    expect(tapCount, 1);
+  });
+
+  testWidgets('quick second tap without move fires onDoubleTap', (tester) async {
+    var tapCount = 0;
+    var doubleTapCount = 0;
+    var buttonDownCount = 0;
+
+    await tester.pumpWidget(
+      buildTouchpad(
+        onMove: (_) {},
+        onScroll: (_) {},
+        onTap: () => tapCount++,
+        onDoubleTap: () => doubleTapCount++,
+        onButtonDown: () => buttonDownCount++,
+      ),
+    );
+
+    final finger = await tester.createGesture();
+    await finger.down(const Offset(100, 100));
+    await tester.pump();
+    await finger.up();
+    await tester.pump();
+    await finger.down(const Offset(100, 100));
+    await tester.pump();
+    await finger.up();
+    await tester.pump();
+
+    expect(tapCount, 1);
+    expect(doubleTapCount, 1);
+    expect(buttonDownCount, 0);
+  });
+
+  testWidgets('second press move enters button held and up releases', (tester) async {
+    var tapCount = 0;
+    var doubleTapCount = 0;
+    var buttonDownCount = 0;
+    var buttonUpCount = 0;
+
+    await tester.pumpWidget(
+      buildTouchpad(
+        moveThreshold: 8,
+        onMove: (_) {},
+        onScroll: (_) {},
+        onTap: () => tapCount++,
+        onDoubleTap: () => doubleTapCount++,
+        onButtonDown: () => buttonDownCount++,
+        onButtonUp: () => buttonUpCount++,
+      ),
+    );
+
+    final finger = await tester.createGesture();
+    await finger.down(const Offset(100, 100));
+    await tester.pump();
+    await finger.up();
+    await tester.pump();
+    await finger.down(const Offset(100, 100));
+    await tester.pump();
+    await finger.moveBy(const Offset(20, 0));
+    await tester.pump();
+    await finger.up();
+    await tester.pump();
+
+    expect(tapCount, 1);
+    expect(doubleTapCount, 0);
+    expect(buttonDownCount, 1);
+    expect(buttonUpCount, 1);
+  });
+
+  testWidgets('second press long hold without move enters button held', (tester) async {
+    var buttonDownCount = 0;
+    var buttonUpCount = 0;
+    var doubleTapCount = 0;
+
+    await tester.pumpWidget(
+      buildTouchpad(
+        moveThreshold: 8,
+        onMove: (_) {},
+        onScroll: (_) {},
+        onDoubleTap: () => doubleTapCount++,
+        onButtonDown: () => buttonDownCount++,
+        onButtonUp: () => buttonUpCount++,
+      ),
+    );
+
+    final finger = await tester.createGesture();
+    await finger.down(const Offset(100, 100));
+    await tester.pump();
+    await finger.up();
+    await tester.pump();
+    await finger.down(const Offset(100, 100));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(buttonDownCount, 1);
+    expect(doubleTapCount, 0);
+    await finger.up();
+    await tester.pump();
+    expect(buttonUpCount, 1);
   });
 }

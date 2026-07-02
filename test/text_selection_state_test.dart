@@ -1,23 +1,7 @@
-import 'package:cursor_pad/features/browser/copy_mode_state.dart';
 import 'package:cursor_pad/features/browser/selection_info.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  group('CopyModeState', () {
-    test('starts inactive', () {
-      final mode = CopyModeState();
-      expect(mode.active, isFalse);
-    });
-
-    test('enter and exit toggle active flag', () {
-      final mode = CopyModeState();
-      mode.enter();
-      expect(mode.active, isTrue);
-      mode.exit();
-      expect(mode.active, isFalse);
-    });
-  });
-
   group('SelectionInfo', () {
     test('parses json payload', () {
       final info = SelectionInfo.fromJson({

@@ -523,11 +523,12 @@ class BrowserController {
     );
   }
 
-  Future<void> doubleClick() async {
+  Future<void> doubleClick({bool firstClickAlreadySent = false}) async {
     final px = _pendingCursorX;
     final py = _pendingCursorY;
     final xArg = px ?? 'null';
     final yArg = py ?? 'null';
+    final skipFirstArg = firstClickAlreadySent ? 'true' : 'false';
 
     if (!selectionArmed &&
         !kIsWeb &&
@@ -535,13 +536,15 @@ class BrowserController {
         px != null &&
         py != null) {
       await WebViewTouchSimulator.clickAt(px, py);
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      await WebViewTouchSimulator.clickAt(px, py);
+      if (!firstClickAlreadySent) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await WebViewTouchSimulator.clickAt(px, py);
+      }
     }
 
     await _webViewController?.evaluateJavascript(
       source:
-          'window.__cursorPad && window.__cursorPad.doubleClick($xArg, $yArg);',
+          'window.__cursorPad && window.__cursorPad.doubleClick($xArg, $yArg, $skipFirstArg);',
     );
   }
 

@@ -8,6 +8,8 @@ typedef TouchpadMoveCallback = void Function(Offset delta);
 typedef TouchpadScrollCallback = void Function(Offset delta);
 typedef TouchpadMultiTouchCallback = void Function();
 
+enum _TapPhase { idle, afterFirstTap, secondPressDown, buttonHeld }
+
 class TouchpadDetector extends StatefulWidget {
   const TouchpadDetector({
     super.key,
@@ -15,7 +17,8 @@ class TouchpadDetector extends StatefulWidget {
     required this.onMove,
     required this.onTap,
     required this.onDoubleTap,
-    required this.onTripleTap,
+    required this.onButtonDown,
+    required this.onButtonUp,
     required this.onLongPress,
     required this.onScroll,
     this.onMultiTouchStart,
@@ -28,7 +31,8 @@ class TouchpadDetector extends StatefulWidget {
   final TouchpadMoveCallback onMove;
   final TouchpadTapCallback onTap;
   final TouchpadTapCallback onDoubleTap;
-  final TouchpadTapCallback onTripleTap;
+  final TouchpadTapCallback onButtonDown;
+  final TouchpadTapCallback onButtonUp;
   final TouchpadTapCallback onLongPress;
   final TouchpadScrollCallback onScroll;
   final TouchpadMultiTouchCallback? onMultiTouchStart;
@@ -45,21 +49,23 @@ enum _ScrollAxisLock { none, vertical, horizontal }
 class _TouchpadDetectorState extends State<TouchpadDetector> {
   static const _twoFingerSlop = 12.0;
   static const _multiTapWindow = Duration(milliseconds: 350);
+  static const _secondPressHoldDelay = Duration(milliseconds: 300);
 
   final Map<int, Offset> _pointers = {};
   final Map<int, Offset> _lastPointerPositions = {};
   Offset? _lastPanPosition;
   Offset? _lastMultiTouchCentroid;
+  Offset? _secondPressOrigin;
   bool _moved = false;
   bool _multiTouchActive = false;
   bool _twoFingerScrollActive = false;
   double _accumulatedCentroidTravel = 0;
   Offset _accumulatedTwoFingerDelta = Offset.zero;
   _ScrollAxisLock _scrollAxisLock = _ScrollAxisLock.none;
+  _TapPhase _tapPhase = _TapPhase.idle;
   Timer? _longPressTimer;
-  Timer? _multiTapTimer;
-  int _tapStreak = 0;
-  DateTime? _lastTapAt;
+  Timer? _afterFirstTapTimer;
+  Timer? _secondPressHoldTimer;
 
   Offset _computeCentroid() {
     if (_pointers.isEmpty) {
@@ -153,34 +159,75 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
   @override
   void dispose() {
     _longPressTimer?.cancel();
-    _multiTapTimer?.cancel();
+    _afterFirstTapTimer?.cancel();
+    _secondPressHoldTimer?.cancel();
     super.dispose();
   }
 
-  void _registerTap() {
-    final now = DateTime.now();
-    if (_lastTapAt != null &&
-        now.difference(_lastTapAt!) > _multiTapWindow) {
-      _tapStreak = 0;
-    }
+  void _resetTapPhase() {
+    _tapPhase = _TapPhase.idle;
+    _secondPressOrigin = null;
+    _afterFirstTapTimer?.cancel();
+    _afterFirstTapTimer = null;
+    _secondPressHoldTimer?.cancel();
+    _secondPressHoldTimer = null;
+  }
 
-    _tapStreak++;
-    _lastTapAt = now;
+  void _enterAfterFirstTap() {
+    _tapPhase = _TapPhase.afterFirstTap;
+    _afterFirstTapTimer?.cancel();
+    _afterFirstTapTimer = Timer(_multiTapWindow, _resetTapPhase);
+  }
 
-    _multiTapTimer?.cancel();
-    _multiTapTimer = Timer(_multiTapWindow, () {
-      final count = _tapStreak;
-      _tapStreak = 0;
-      _lastTapAt = null;
+  void _onFirstTapUp() {
+    widget.onTap();
+    _enterAfterFirstTap();
+  }
 
-      if (count == 1) {
-        widget.onTap();
-      } else if (count == 2) {
-        widget.onDoubleTap();
-      } else if (count >= 3) {
-        widget.onTripleTap();
+  void _enterSecondPressDown(Offset position) {
+    _tapPhase = _TapPhase.secondPressDown;
+    _secondPressOrigin = position;
+    _afterFirstTapTimer?.cancel();
+    _afterFirstTapTimer = null;
+    _cancelLongPress();
+    _secondPressHoldTimer?.cancel();
+    _secondPressHoldTimer = Timer(_secondPressHoldDelay, () {
+      if (_tapPhase == _TapPhase.secondPressDown) {
+        _enterButtonHeld();
       }
     });
+  }
+
+  void _enterButtonHeld() {
+    if (_tapPhase != _TapPhase.secondPressDown &&
+        _tapPhase != _TapPhase.buttonHeld) {
+      return;
+    }
+    _tapPhase = _TapPhase.buttonHeld;
+    _secondPressHoldTimer?.cancel();
+    _secondPressHoldTimer = null;
+    widget.onButtonDown();
+  }
+
+  void _onSecondPressUp() {
+    _secondPressHoldTimer?.cancel();
+    _secondPressHoldTimer = null;
+    if (_tapPhase == _TapPhase.buttonHeld) {
+      widget.onButtonUp();
+    } else if (_tapPhase == _TapPhase.secondPressDown) {
+      widget.onDoubleTap();
+    }
+    _resetTapPhase();
+  }
+
+  void _maybeEnterButtonHeldFromMove(Offset position) {
+    if (_tapPhase != _TapPhase.secondPressDown || _secondPressOrigin == null) {
+      return;
+    }
+    final travel = (position - _secondPressOrigin!).distance;
+    if (travel >= widget.moveThreshold) {
+      _enterButtonHeld();
+    }
   }
 
   void _cancelLongPress() {
@@ -190,11 +237,16 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
 
   void _scheduleLongPress() {
     _cancelLongPress();
-    if (_pointers.length != 1) {
+    if (_pointers.length != 1 ||
+        _tapPhase == _TapPhase.secondPressDown ||
+        _tapPhase == _TapPhase.buttonHeld) {
       return;
     }
     _longPressTimer = Timer(const Duration(milliseconds: 500), () {
-      if (_pointers.length == 1 && !_moved) {
+      if (_pointers.length == 1 &&
+          !_moved &&
+          _tapPhase != _TapPhase.secondPressDown &&
+          _tapPhase != _TapPhase.buttonHeld) {
         widget.onLongPress();
       }
     });
@@ -205,6 +257,7 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
     _lastPanPosition = null;
     _moved = true;
     _cancelLongPress();
+    _resetTapPhase();
     widget.onMultiTouchStart?.call();
   }
 
@@ -225,6 +278,21 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
     }
   }
 
+  void _handleSinglePointerUp() {
+    switch (_tapPhase) {
+      case _TapPhase.buttonHeld:
+        _onSecondPressUp();
+      case _TapPhase.secondPressDown:
+        _onSecondPressUp();
+      case _TapPhase.idle:
+        if (!_moved) {
+          _onFirstTapUp();
+        }
+      case _TapPhase.afterFirstTap:
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Listener(
@@ -235,7 +303,11 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
           _lastPanPosition = event.position;
           _lastMultiTouchCentroid = null;
           _moved = false;
-          _scheduleLongPress();
+          if (_tapPhase == _TapPhase.afterFirstTap) {
+            _enterSecondPressDown(event.position);
+          } else {
+            _scheduleLongPress();
+          }
         } else {
           if (_pointers.length == 2) {
             _enterMultiTouch();
@@ -257,6 +329,7 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
         }
 
         if (_pointers.length == 1 && _lastPanPosition != null) {
+          _maybeEnterButtonHeldFromMove(event.position);
           final delta = (event.position - _lastPanPosition!) * widget.sensitivity;
           if (delta.distance >= widget.moveThreshold || _moved) {
             _moved = true;
@@ -273,17 +346,22 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
         _cancelLongPress();
         _updateMultiTouchCentroid();
 
-        if (wasSinglePointer && !_moved) {
-          _registerTap();
+        if (wasSinglePointer) {
+          _handleSinglePointerUp();
         }
 
         _onMultiTouchPointerRemoved();
       },
       onPointerCancel: (event) {
+        final wasButtonHeld = _tapPhase == _TapPhase.buttonHeld;
         _pointers.remove(event.pointer);
         _lastPointerPositions.remove(event.pointer);
         _cancelLongPress();
         _updateMultiTouchCentroid();
+        if (wasButtonHeld) {
+          widget.onButtonUp();
+          _resetTapPhase();
+        }
         _onMultiTouchPointerRemoved();
       },
       onPointerSignal: (event) {

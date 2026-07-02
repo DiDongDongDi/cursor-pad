@@ -958,14 +958,16 @@
       return { needsIme: needsIme, tag: tag };
     },
 
-    doubleClick: function (nativeX, nativeY) {
+    doubleClick: function (nativeX, nativeY, firstClickAlreadySent) {
       if (nativeX != null && nativeY != null) {
         this.moveTo(nativeX, nativeY);
       }
       var target = elementAt(lastX, lastY) || document.body;
       var actionable = findActionableElement(target) || target;
 
-      dispatchClickSequence(actionable, lastX, lastY, { button: 0, detail: 1 });
+      if (!firstClickAlreadySent) {
+        dispatchClickSequence(actionable, lastX, lastY, { button: 0, detail: 1 });
+      }
       dispatchClickSequence(actionable, lastX, lastY, { button: 0, detail: 2 });
       actionable.dispatchEvent(
         createMouseEvent('dblclick', lastX, lastY, { button: 0, detail: 2 }),

@@ -13,10 +13,8 @@ import '../browser/browser_tab.dart';
 import '../browser/browser_tab_switcher.dart';
 import '../browser/browser_toolbar.dart';
 import '../browser/desktop_webview.dart';
-import '../browser/copy_mode_state.dart';
 import '../browser/tab_manager.dart';
 import '../browser/tab_switcher_hit_tester.dart';
-import '../browser/text_selection_bar.dart';
 import '../browser/toolbar_hit_tester.dart';
 import '../browser/toolbar_visibility.dart';
 import '../browser/url_field_selection.dart';
@@ -51,13 +49,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   Size _viewportSize = Size.zero;
   double _lastChromeHeight = -1;
   bool _tabSwitcherOpen = false;
-  final CopyModeState _copyMode = CopyModeState();
-  final CopyModeState _urlCopyMode = CopyModeState();
-  Offset? _selectionAnchor;
-  int? _urlSelectionAnchor;
-  Timer? _selectionPreviewTimer;
-  String _selectedTextPreview = '';
-  String _urlSelectedTextPreview = '';
+  bool _buttonHeld = false;
 
   BrowserTab get _activeTab => _tabManager.activeTab;
   BrowserController get _activeController => _activeTab.controller;
@@ -174,7 +166,6 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
     _tabManager.removeListener(_onTabManagerChanged);
     _tabManager.dispose();
-    _selectionPreviewTimer?.cancel();
     super.dispose();
   }
 
@@ -198,9 +189,6 @@ class _BrowserScreenState extends State<BrowserScreen>
     if (_urlFocusNode.hasFocus) {
       _toolbarVisibility.forceShow();
     } else {
-      if (_urlCopyMode.active) {
-        unawaited(_exitUrlCopyMode());
-      }
       _toolbarVisibility.onCursorMove(
         _cursorState.position.dy,
         chromeHeight: _chromeHeight(context),
@@ -240,9 +228,6 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   bool _isAddressBarInteraction() {
-    if (_urlCopyMode.active) {
-      return true;
-    }
     if (_urlFocusNode.hasFocus) {
       return true;
     }
@@ -268,10 +253,6 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _handleUrlFieldSingleTap() async {
-    if (_urlCopyMode.active) {
-      return;
-    }
-
     final alreadyFocused = _urlFocusNode.hasFocus;
     if (!alreadyFocused) {
       _focusUrlField(selectAll: true);
@@ -289,87 +270,10 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _handleUrlFieldDoubleTap() async {
-    if (_urlCopyMode.active) {
-      return;
-    }
     _focusUrlField(selectAll: false);
     final offset = _urlOffsetAtCursor() ?? 0;
     _urlController.selection =
         wordSelectionAt(_urlController.text, offset);
-  }
-
-  void _scheduleUrlSelectionPreviewUi() {
-    _selectionPreviewTimer?.cancel();
-    _selectionPreviewTimer = Timer(const Duration(milliseconds: 32), () {
-      if (mounted && _urlCopyMode.active) {
-        setState(() {});
-      }
-    });
-  }
-
-  void _updateUrlCopyModeSelection() {
-    final anchor = _urlSelectionAnchor;
-    if (anchor == null) {
-      return;
-    }
-    final extent = _urlOffsetAtCursor();
-    if (extent == null) {
-      return;
-    }
-    final text = _urlController.text;
-    _urlController.selection =
-        selectionFromAnchor(anchor, extent, text.length);
-    _urlSelectedTextPreview =
-        selectedTextFromSelection(text, _urlController.selection);
-    _scheduleUrlSelectionPreviewUi();
-  }
-
-  Future<void> _enterUrlCopyMode() async {
-    if (!mounted) {
-      return;
-    }
-    if (_copyMode.active) {
-      await _exitCopyMode();
-    }
-    _focusUrlField(selectAll: false);
-    final offset = _urlOffsetAtCursor() ?? 0;
-    _urlSelectionAnchor = offset;
-    final text = _urlController.text;
-    _urlController.selection = wordSelectionAt(text, offset);
-    _urlSelectedTextPreview =
-        selectedTextFromSelection(text, _urlController.selection);
-    _urlCopyMode.enter();
-    setState(() {});
-  }
-
-  Future<void> _exitUrlCopyMode() async {
-    _selectionPreviewTimer?.cancel();
-    _urlCopyMode.exit();
-    _urlSelectionAnchor = null;
-    _urlSelectedTextPreview = '';
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  Future<void> _copyUrlSelectedText() async {
-    final text =
-        selectedTextFromSelection(_urlController.text, _urlController.selection);
-    if (text.isEmpty) {
-      return;
-    }
-    await TextSelectionBar.copyToClipboard(context, text);
-    await _exitUrlCopyMode();
-  }
-
-  Future<void> _selectAllUrlForCopyBar() async {
-    if (!mounted || !_urlCopyMode.active) {
-      return;
-    }
-    _urlSelectionAnchor = 0;
-    _selectAllUrlText();
-    _urlSelectedTextPreview = _urlController.text;
-    setState(() {});
   }
 
   void _onToolbarVisibilityChanged() {
@@ -525,9 +429,8 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     final webViewPos = _webViewCursorPosition(context);
-    if (_copyMode.active) {
-      await _activeController.moveCursor(webViewPos.dx, webViewPos.dy);
-      await _updateCopyModeSelection(webViewPos);
+    if (_buttonHeld) {
+      await _activeController.updateSelectionAt(webViewPos.dx, webViewPos.dy);
       return;
     }
     await _activeController.moveCursor(webViewPos.dx, webViewPos.dy);
@@ -538,97 +441,21 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     final webViewPos = _webViewCursorPosition(context);
-    if (_copyMode.active) {
+    if (_buttonHeld) {
       await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
-      await _updateCopyModeSelection(webViewPos);
+      await _activeController.updateSelectionAt(webViewPos.dx, webViewPos.dy);
       return;
     }
     await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
   }
 
-  Future<void> _updateCopyModeSelection(Offset webViewPos) async {
-    final anchor = _selectionAnchor;
-    if (anchor == null) {
+  Future<void> _cancelButtonHeld() async {
+    if (!_buttonHeld) {
       return;
     }
-    final info = await _activeController.setSelectionRange(
-      anchor.dx,
-      anchor.dy,
-      webViewPos.dx,
-      webViewPos.dy,
-    );
-    if (info != null && mounted) {
-      _selectedTextPreview = info.text;
-      _scheduleSelectionPreviewUi();
-    }
-  }
-
-  void _scheduleSelectionPreviewUi() {
-    _selectionPreviewTimer?.cancel();
-    _selectionPreviewTimer = Timer(const Duration(milliseconds: 32), () {
-      if (mounted && _copyMode.active) {
-        setState(() {});
-      }
-    });
-  }
-
-  Future<void> _enterCopyMode() async {
-    if (!mounted) {
-      return;
-    }
-    if (_urlCopyMode.active) {
-      await _exitUrlCopyMode();
-    }
-    final webViewPos = _webViewCursorPosition(context);
-    await _syncCursorToPageImmediate();
-    _selectionAnchor = webViewPos;
-    _copyMode.enter();
-    _activeController.selectionArmed = true;
-
-    final info = await _activeController.selectWordAtPoint();
-    if (info != null) {
-      _selectedTextPreview = info.text;
-    }
-
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  Future<void> _exitCopyMode({bool clearPageSelection = true}) async {
-    _selectionPreviewTimer?.cancel();
-    _copyMode.exit();
-    _selectionAnchor = null;
-    _selectedTextPreview = '';
+    await _activeController.cancelSelection();
+    _buttonHeld = false;
     _activeController.selectionArmed = false;
-    if (clearPageSelection) {
-      await _activeController.clearSelection();
-    }
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  Future<void> _dismissCopyMode() async {
-    await _exitCopyMode();
-  }
-
-  Future<void> _copySelectedText() async {
-    final text = _selectedTextPreview;
-    if (text.isEmpty) {
-      return;
-    }
-    await TextSelectionBar.copyToClipboard(context, text);
-    await _exitCopyMode();
-  }
-
-  Future<void> _selectAllPageText() async {
-    final info = await _activeController.selectAll();
-    if (!mounted || !_copyMode.active) {
-      return;
-    }
-    _selectedTextPreview = info?.text ?? '';
-    setState(() {});
   }
 
   void _onMove(Offset delta) {
@@ -640,19 +467,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     _activeTab.cursorState = _cursorState;
     _cursorPosition.value = _cursorState.position;
 
-    if (_urlCopyMode.active) {
-      if (_isCursorOverUrlField()) {
-        _updateUrlCopyModeSelection();
-        _toolbarVisibility.onCursorMove(
-          _cursorState.position.dy,
-          chromeHeight: _chromeHeight(context),
-        );
-        return;
-      }
-      unawaited(_exitUrlCopyMode());
-    }
-
-    if (_urlFocusNode.hasFocus && !_urlCopyMode.active) {
+    if (_urlFocusNode.hasFocus) {
       final chromeHeight =
           MediaQuery.paddingOf(context).top + _toolbarContentHeight;
       if (_cursorState.position.dy >= chromeHeight) {
@@ -808,7 +623,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    if (_copyMode.active || _urlCopyMode.active) {
+    if (_buttonHeld) {
       return;
     }
 
@@ -826,20 +641,16 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    if (_copyMode.active || _urlCopyMode.active) {
+    if (_buttonHeld) {
       return;
     }
 
     await _syncCursorToPageImmediate();
-    await _activeController.doubleClick();
+    await _activeController.doubleClick(firstClickAlreadySent: true);
   }
 
-  Future<void> _onTripleTap() async {
+  Future<void> _onButtonDown() async {
     if (_isAddressBarInteraction()) {
-      if (_urlCopyMode.active) {
-        await _exitUrlCopyMode();
-      }
-      await _enterUrlCopyMode();
       return;
     }
 
@@ -847,10 +658,20 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    if (_copyMode.active) {
-      await _exitCopyMode();
+    await _syncCursorToPageImmediate();
+    _buttonHeld = true;
+    _activeController.selectionArmed = true;
+    await _activeController.beginSelection();
+  }
+
+  Future<void> _onButtonUp() async {
+    if (!_buttonHeld) {
+      return;
     }
-    await _enterCopyMode();
+    await _syncCursorToPageImmediate();
+    await _activeController.endSelection();
+    _buttonHeld = false;
+    _activeController.selectionArmed = false;
   }
 
   Future<void> _onLongPress() async {
@@ -858,8 +679,8 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    if (_copyMode.active) {
-      await _exitCopyMode();
+    if (_buttonHeld) {
+      await _cancelButtonHeld();
     }
 
     await _syncCursorToPageImmediate();
@@ -867,21 +688,15 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _onScroll(Offset delta) async {
-    if (_urlCopyMode.active) {
-      await _exitUrlCopyMode();
-    }
-    if (_copyMode.active) {
-      await _exitCopyMode();
+    if (_buttonHeld) {
+      await _cancelButtonHeld();
     }
     await _activeController.scroll(delta.dx, delta.dy);
   }
 
   void _onMultiTouchStart() {
-    if (_urlCopyMode.active) {
-      unawaited(_exitUrlCopyMode());
-    }
-    if (_copyMode.active) {
-      unawaited(_exitCopyMode());
+    if (_buttonHeld) {
+      unawaited(_cancelButtonHeld());
     }
   }
 
@@ -962,13 +777,8 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _handleSystemBack() async {
-    if (_urlCopyMode.active) {
-      await _exitUrlCopyMode();
-      return;
-    }
-
-    if (_copyMode.active) {
-      await _exitCopyMode();
+    if (_buttonHeld) {
+      await _cancelButtonHeld();
       return;
     }
 
@@ -1045,7 +855,8 @@ class _BrowserScreenState extends State<BrowserScreen>
         onMove: _onMove,
         onTap: _onTap,
         onDoubleTap: _onDoubleTap,
-        onTripleTap: _onTripleTap,
+        onButtonDown: _onButtonDown,
+        onButtonUp: _onButtonUp,
         onLongPress: _onLongPress,
         onScroll: _onScroll,
         onMultiTouchStart: _onMultiTouchStart,
@@ -1190,26 +1001,6 @@ class _BrowserScreenState extends State<BrowserScreen>
           ],
         ),
           ),
-          if (_copyMode.active || _urlCopyMode.active)
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: MediaQuery.paddingOf(context).bottom + 12,
-              child: TextSelectionBar(
-                previewText: _copyMode.active
-                    ? _selectedTextPreview
-                    : _urlSelectedTextPreview,
-                onCopy: _copyMode.active
-                    ? _copySelectedText
-                    : _copyUrlSelectedText,
-                onSelectAll: _copyMode.active
-                    ? _selectAllPageText
-                    : _selectAllUrlForCopyBar,
-                onDismiss: _copyMode.active
-                    ? _dismissCopyMode
-                    : _exitUrlCopyMode,
-              ),
-            ),
         ],
       ),
       ),
