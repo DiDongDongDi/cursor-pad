@@ -309,39 +309,47 @@
     return el;
   }
 
-  function isScrollable(el) {
+  function getScrollAxes(el) {
     if (!el || el === document.documentElement) {
-      return false;
+      return { x: false, y: false };
     }
     try {
       var style = window.getComputedStyle(el);
       var overflowY = style.overflowY;
       var overflowX = style.overflowX;
-      var canScrollY =
-        (overflowY === 'auto' ||
-          overflowY === 'scroll' ||
-          overflowY === 'overlay') &&
-        el.scrollHeight > el.clientHeight;
-      var canScrollX =
-        (overflowX === 'auto' ||
-          overflowX === 'scroll' ||
-          overflowX === 'overlay') &&
-        el.scrollWidth > el.clientWidth;
-      return canScrollY || canScrollX;
+      return {
+        y:
+          (overflowY === 'auto' ||
+            overflowY === 'scroll' ||
+            overflowY === 'overlay') &&
+          el.scrollHeight > el.clientHeight,
+        x:
+          (overflowX === 'auto' ||
+            overflowX === 'scroll' ||
+            overflowX === 'overlay') &&
+          el.scrollWidth > el.clientWidth,
+      };
     } catch (e) {
-      return false;
+      return { x: false, y: false };
     }
   }
 
-  function findScrollableAt(x, y) {
+  function findScrollableAt(x, y, axis) {
     var el = elementAt(x, y);
     while (el && el !== document.documentElement) {
-      if (isScrollable(el)) {
+      var axes = getScrollAxes(el);
+      if (axis === 'y' && axes.y) {
+        return el;
+      }
+      if (axis === 'x' && axes.x) {
         return el;
       }
       el = el.parentElement;
     }
-    return document.scrollingElement || document.documentElement;
+    if (axis === 'y') {
+      return document.scrollingElement || document.documentElement;
+    }
+    return null;
   }
 
   function findAnchor(el) {
@@ -591,9 +599,25 @@
     },
 
     scroll: function (deltaX, deltaY) {
-      var target = elementAt(lastX, lastY) || document.documentElement;
-      var wheelEvent;
+      var verticalScrollable =
+        deltaY !== 0 ? findScrollableAt(lastX, lastY, 'y') : null;
+      var horizontalScrollable =
+        deltaX !== 0 ? findScrollableAt(lastX, lastY, 'x') : null;
 
+      // Route wheel events by dominant axis so vertical scroll is not
+      // converted into horizontal scroll on overflow-x-only containers.
+      var wheelTarget = elementAt(lastX, lastY) || document.documentElement;
+      var wheelDeltaX = deltaX;
+      var wheelDeltaY = deltaY;
+      if (Math.abs(deltaY) >= Math.abs(deltaX)) {
+        if (verticalScrollable) {
+          wheelTarget = verticalScrollable;
+        }
+      } else if (horizontalScrollable) {
+        wheelTarget = horizontalScrollable;
+      }
+
+      var wheelEvent;
       try {
         wheelEvent = new WheelEvent('wheel', {
           bubbles: true,
@@ -601,8 +625,8 @@
           view: window,
           clientX: lastX,
           clientY: lastY,
-          deltaX: deltaX,
-          deltaY: deltaY,
+          deltaX: wheelDeltaX,
+          deltaY: wheelDeltaY,
           deltaMode: 0,
         });
       } catch (e) {
@@ -617,23 +641,23 @@
           lastY,
           lastX,
           lastY,
-          false,
-          false,
-          false,
-          false,
-          deltaY,
-          deltaX,
-          deltaY,
+          0,
+          null,
+          '',
+          wheelDeltaX,
+          wheelDeltaY,
+          0,
           0,
         );
       }
 
-      target.dispatchEvent(wheelEvent);
+      wheelTarget.dispatchEvent(wheelEvent);
 
-      var scrollable = findScrollableAt(lastX, lastY);
-      if (scrollable) {
-        scrollable.scrollLeft += deltaX;
-        scrollable.scrollTop += deltaY;
+      if (verticalScrollable) {
+        verticalScrollable.scrollTop += deltaY;
+      }
+      if (horizontalScrollable) {
+        horizontalScrollable.scrollLeft += deltaX;
       }
     },
   };
