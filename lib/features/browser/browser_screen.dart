@@ -471,6 +471,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     await _activeController.cancelDrag();
     _buttonHeld = false;
     _activeController.dragArmed = false;
+    await _syncCursorToPageImmediate();
   }
 
   void _onMove(Offset delta) {
@@ -696,6 +697,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     await _activeController.endDrag();
     _buttonHeld = false;
     _activeController.dragArmed = false;
+    await _syncCursorToPageImmediate();
   }
 
   Future<void> _onButtonCancel() async {
@@ -706,6 +708,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     await _activeController.cancelDrag();
     _buttonHeld = false;
     _activeController.dragArmed = false;
+    await _syncCursorToPageImmediate();
   }
 
   Future<void> _onLongPress() async {

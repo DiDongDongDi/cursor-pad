@@ -437,6 +437,9 @@ class BrowserController {
       return;
     }
     try {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        await WebViewTouchSimulator.mouseHoverMove(px, py);
+      }
       await _webViewController?.evaluateJavascript(
         source: 'window.__cursorPad && window.__cursorPad.moveTo($px, $py);',
       );

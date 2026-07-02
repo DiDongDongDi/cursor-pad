@@ -116,6 +116,22 @@ class WebViewTouchSimulator {
     }
   }
 
+  /// Native hover move for CSS :hover on Android WebView.
+  static Future<bool> mouseHoverMove(double x, double y) async {
+    if (!_isAndroid) {
+      return false;
+    }
+    try {
+      final result = await _channel.invokeMethod<bool>('mouseHoverMove', {
+        'x': x,
+        'y': y,
+      });
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<bool> showIme() async {
     if (!_isAndroid) {
       return false;
