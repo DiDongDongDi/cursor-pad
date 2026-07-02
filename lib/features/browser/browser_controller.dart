@@ -37,7 +37,6 @@ class BrowserController {
   double? _pendingCursorY;
   double _lastSyncedWidth = 0;
   double _lastSyncedHeight = 0;
-  bool _dragActive = false;
 
   void Function(BrowserState state)? onStateChanged;
   VoidCallback? onPageReady;
@@ -506,77 +505,6 @@ class BrowserController {
           'window.__cursorPad && window.__cursorPad.scroll($deltaX, $deltaY);',
     );
   }
-
-  Future<void> beginDrag({int button = 0}) async {
-    final px = _pendingCursorX;
-    final py = _pendingCursorY;
-    if (px == null || py == null || _webViewController == null) {
-      return;
-    }
-
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      await WebViewTouchSimulator.touchDownAt(px, py);
-    }
-
-    try {
-      await _webViewController?.evaluateJavascript(
-        source:
-            'window.__cursorPad && window.__cursorPad.beginDrag($button, $px, $py);',
-      );
-      _dragActive = true;
-    } catch (_) {
-      // WebView may be reloading.
-    }
-  }
-
-  Future<void> dragTo(double x, double y) async {
-    _pendingCursorX = x;
-    _pendingCursorY = y;
-    if (_webViewController == null || !_dragActive) {
-      return;
-    }
-
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      await WebViewTouchSimulator.touchMoveTo(x, y);
-    }
-
-    try {
-      await _webViewController?.evaluateJavascript(
-        source: 'window.__cursorPad && window.__cursorPad.dragTo($x, $y);',
-      );
-    } catch (_) {
-      // WebView may be reloading.
-    }
-  }
-
-  Future<void> endDrag() async {
-    if (!_dragActive || _webViewController == null) {
-      _dragActive = false;
-      return;
-    }
-
-    final px = _pendingCursorX;
-    final py = _pendingCursorY;
-    if (px == null || py == null) {
-      _dragActive = false;
-      return;
-    }
-
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      await WebViewTouchSimulator.touchUpAt(px, py);
-    }
-
-    try {
-      await _webViewController?.evaluateJavascript(
-        source: 'window.__cursorPad && window.__cursorPad.endDrag();',
-      );
-    } catch (_) {
-      // WebView may be reloading.
-    }
-    _dragActive = false;
-  }
-
-  bool get dragActive => _dragActive;
 
   Future<void> zoomBy(double scaleFactor) async {
     if (scaleFactor <= 0 || scaleFactor == 1) {

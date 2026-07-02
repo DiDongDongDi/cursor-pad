@@ -6,7 +6,6 @@ enum ToolbarHitTarget {
   reload,
   home,
   bookmark,
-  leftButtonLock,
   zoomOut,
   zoomIn,
   tabsButton,
@@ -20,7 +19,6 @@ class ToolbarHitTester {
   final GlobalKey reloadKey = GlobalKey();
   final GlobalKey homeKey = GlobalKey();
   final GlobalKey bookmarkKey = GlobalKey();
-  final GlobalKey leftButtonLockKey = GlobalKey();
   final GlobalKey zoomOutKey = GlobalKey();
   final GlobalKey zoomInKey = GlobalKey();
   final GlobalKey tabsButtonKey = GlobalKey();
@@ -48,7 +46,6 @@ class ToolbarHitTester {
         (key: reloadKey, target: ToolbarHitTarget.reload),
         (key: homeKey, target: ToolbarHitTarget.home),
         (key: bookmarkKey, target: ToolbarHitTarget.bookmark),
-        (key: leftButtonLockKey, target: ToolbarHitTarget.leftButtonLock),
         (key: zoomOutKey, target: ToolbarHitTarget.zoomOut),
         (key: zoomInKey, target: ToolbarHitTarget.zoomIn),
         (key: tabsButtonKey, target: ToolbarHitTarget.tabsButton),

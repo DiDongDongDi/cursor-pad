@@ -13,9 +13,6 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val channelName = "com.cursorpad.cursor_pad/webview_touch"
 
-    private var dragDownTime: Long = 0
-    private var dragActive = false
-
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
@@ -31,36 +28,6 @@ class MainActivity : FlutterActivity() {
                         result.success(simulateClickAt(x, y))
                     }
 
-                    "touchDownAt" -> {
-                        val x = call.argument<Double>("x")?.toFloat()
-                        val y = call.argument<Double>("y")?.toFloat()
-                        if (x == null || y == null) {
-                            result.success(false)
-                            return@setMethodCallHandler
-                        }
-                        result.success(simulateTouchDownAt(x, y))
-                    }
-
-                    "touchMoveTo" -> {
-                        val x = call.argument<Double>("x")?.toFloat()
-                        val y = call.argument<Double>("y")?.toFloat()
-                        if (x == null || y == null) {
-                            result.success(false)
-                            return@setMethodCallHandler
-                        }
-                        result.success(simulateTouchMoveTo(x, y))
-                    }
-
-                    "touchUpAt" -> {
-                        val x = call.argument<Double>("x")?.toFloat()
-                        val y = call.argument<Double>("y")?.toFloat()
-                        if (x == null || y == null) {
-                            result.success(false)
-                            return@setMethodCallHandler
-                        }
-                        result.success(simulateTouchUpAt(x, y))
-                    }
-
                     "showIme" -> {
                         result.success(showImeForWebView())
                     }
@@ -72,68 +39,15 @@ class MainActivity : FlutterActivity() {
 
     private fun simulateClickAt(x: Float, y: Float): Boolean {
         val webView = findVisibleWebView(window.decorView) ?: return false
-        val (pxX, pxY) = toViewPixels(webView, x, y)
+
+        // Flutter passes logical pixels (dp); MotionEvent expects view pixels.
+        val density = webView.resources.displayMetrics.density
+        val pxX = x * density
+        val pxY = y * density
 
         val downTime = SystemClock.uptimeMillis()
         val eventTime = downTime + 50
 
-        dispatchTouchEvent(webView, MotionEvent.ACTION_DOWN, downTime, downTime, pxX, pxY)
-        dispatchTouchEvent(webView, MotionEvent.ACTION_UP, downTime, eventTime, pxX, pxY)
-
-        return true
-    }
-
-    private fun simulateTouchDownAt(x: Float, y: Float): Boolean {
-        val webView = findVisibleWebView(window.decorView) ?: return false
-        val (pxX, pxY) = toViewPixels(webView, x, y)
-
-        dragDownTime = SystemClock.uptimeMillis()
-        dragActive = true
-        dispatchTouchEvent(webView, MotionEvent.ACTION_DOWN, dragDownTime, dragDownTime, pxX, pxY)
-
-        return true
-    }
-
-    private fun simulateTouchMoveTo(x: Float, y: Float): Boolean {
-        if (!dragActive) {
-            return false
-        }
-        val webView = findVisibleWebView(window.decorView) ?: return false
-        val (pxX, pxY) = toViewPixels(webView, x, y)
-
-        val eventTime = SystemClock.uptimeMillis()
-        dispatchTouchEvent(webView, MotionEvent.ACTION_MOVE, dragDownTime, eventTime, pxX, pxY)
-
-        return true
-    }
-
-    private fun simulateTouchUpAt(x: Float, y: Float): Boolean {
-        if (!dragActive) {
-            return false
-        }
-        val webView = findVisibleWebView(window.decorView) ?: return false
-        val (pxX, pxY) = toViewPixels(webView, x, y)
-
-        val eventTime = SystemClock.uptimeMillis()
-        dispatchTouchEvent(webView, MotionEvent.ACTION_UP, dragDownTime, eventTime, pxX, pxY)
-        dragActive = false
-
-        return true
-    }
-
-    private fun toViewPixels(webView: WebView, x: Float, y: Float): Pair<Float, Float> {
-        val density = webView.resources.displayMetrics.density
-        return Pair(x * density, y * density)
-    }
-
-    private fun dispatchTouchEvent(
-        webView: WebView,
-        action: Int,
-        downTime: Long,
-        eventTime: Long,
-        pxX: Float,
-        pxY: Float,
-    ) {
         val properties = arrayOf(
             MotionEvent.PointerProperties().apply {
                 id = 0
@@ -144,15 +58,15 @@ class MainActivity : FlutterActivity() {
             MotionEvent.PointerCoords().apply {
                 this.x = pxX
                 this.y = pxY
-                pressure = if (action == MotionEvent.ACTION_UP) 0f else 1f
+                pressure = 1f
                 size = 1f
             },
         )
 
-        val event = MotionEvent.obtain(
+        val down = MotionEvent.obtain(
             downTime,
-            eventTime,
-            action,
+            downTime,
+            MotionEvent.ACTION_DOWN,
             1,
             properties,
             coords,
@@ -165,8 +79,29 @@ class MainActivity : FlutterActivity() {
             0,
             0,
         )
-        webView.dispatchTouchEvent(event)
-        event.recycle()
+        webView.dispatchTouchEvent(down)
+        down.recycle()
+
+        val up = MotionEvent.obtain(
+            downTime,
+            eventTime,
+            MotionEvent.ACTION_UP,
+            1,
+            properties,
+            coords,
+            0,
+            0,
+            1f,
+            1f,
+            0,
+            0,
+            0,
+            0,
+        )
+        webView.dispatchTouchEvent(up)
+        up.recycle()
+
+        return true
     }
 
     private fun showImeForWebView(): Boolean {
