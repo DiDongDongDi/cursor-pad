@@ -4,12 +4,14 @@ import 'package:flutter/foundation.dart';
 
 class ToolbarVisibilityController extends ChangeNotifier {
   ToolbarVisibilityController({
-    this.edgeThreshold = 16,
+    this.showEdgeThreshold = 0,
+    this.keepEdgeThreshold = 16,
     this.showDelay = const Duration(milliseconds: 400),
     this.hideDelay = const Duration(milliseconds: 800),
   });
 
-  final double edgeThreshold;
+  final double showEdgeThreshold;
+  final double keepEdgeThreshold;
   final Duration showDelay;
   final Duration hideDelay;
 
@@ -51,10 +53,18 @@ class ToolbarVisibilityController extends ChangeNotifier {
       return;
     }
 
-    final threshold = chromeHeight + edgeThreshold;
-    if (globalY < threshold) {
+    if (_visible) {
+      if (globalY < chromeHeight + keepEdgeThreshold) {
+        _hideTimer?.cancel();
+      } else {
+        _scheduleHide();
+      }
+      return;
+    }
+
+    if (globalY <= showEdgeThreshold) {
       _hideTimer?.cancel();
-      if (_visible || _showTimer != null) {
+      if (_showTimer != null) {
         return;
       }
       _showTimer = Timer(showDelay, () {
@@ -67,9 +77,6 @@ class ToolbarVisibilityController extends ChangeNotifier {
 
     _showTimer?.cancel();
     _showTimer = null;
-    if (_visible) {
-      _scheduleHide();
-    }
   }
 
   void _scheduleHide() {
