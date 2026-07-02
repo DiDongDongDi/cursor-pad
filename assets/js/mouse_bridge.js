@@ -7,6 +7,10 @@
   var nativeWidth = 1;
   var nativeHeight = 1;
   var pointerId = 1;
+  var selectionActive = false;
+  var selectionTarget = null;
+  var selectionStartX = 0;
+  var selectionStartY = 0;
 
   var ACTIONABLE_SELECTOR =
     'a[href], area[href], button, input, select, textarea, label, summary, ' +
@@ -559,6 +563,137 @@
     }
   }
 
+  function readSelectionFromWindow(win) {
+    try {
+      var sel = win.getSelection && win.getSelection();
+      if (!sel) {
+        return null;
+      }
+      var text = sel.toString();
+      return {
+        text: text,
+        isCollapsed: sel.isCollapsed,
+        length: text.length,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function readSelectedText() {
+    var primary = readSelectionFromWindow(window);
+    if (primary && primary.length > 0) {
+      return primary;
+    }
+
+    var iframes = document.querySelectorAll('iframe');
+    for (var i = 0; i < iframes.length; i++) {
+      try {
+        var doc = iframes[i].contentDocument;
+        if (!doc || !doc.defaultView) {
+          continue;
+        }
+        var nested = readSelectionFromWindow(doc.defaultView);
+        if (nested && nested.length > 0) {
+          return nested;
+        }
+      } catch (e) {
+        // Cross-origin iframe.
+      }
+    }
+
+    return primary || { text: '', isCollapsed: true, length: 0 };
+  }
+
+  function clearDocumentSelection() {
+    try {
+      var sel = window.getSelection && window.getSelection();
+      if (sel && sel.removeAllRanges) {
+        sel.removeAllRanges();
+      }
+    } catch (e) {
+      // Ignore.
+    }
+  }
+
+  function selectAllDocument() {
+    try {
+      var range = document.createRange();
+      range.selectNodeContents(document.body || document.documentElement);
+      var sel = window.getSelection && window.getSelection();
+      if (!sel) {
+        return readSelectedText();
+      }
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return readSelectedText();
+    } catch (e) {
+      return readSelectedText();
+    }
+  }
+
+  function resolveSelectionTarget(x, y) {
+    var target = elementAt(x, y) || document.body;
+    return findActionableElement(target) || target;
+  }
+
+  function dispatchSelectionDown(target, x, y) {
+    target.dispatchEvent(
+      createPointerEvent('pointerdown', x, y, {
+        button: 0,
+        buttons: 1,
+        detail: 1,
+      }),
+    );
+    target.dispatchEvent(
+      createMouseEvent('mousedown', x, y, {
+        button: 0,
+        buttons: 1,
+        detail: 1,
+      }),
+    );
+  }
+
+  function dispatchSelectionMove(target, x, y) {
+    dispatchHoverTransition(target, x, y);
+    target.dispatchEvent(
+      createMouseEvent('mousemove', x, y, {
+        button: 0,
+        buttons: 1,
+        detail: 0,
+      }),
+    );
+    target.dispatchEvent(
+      createPointerEvent('pointermove', x, y, {
+        button: 0,
+        buttons: 1,
+        detail: 0,
+      }),
+    );
+    lastElement = target;
+    lastX = x;
+    lastY = y;
+  }
+
+  function dispatchSelectionUp(target, x, y) {
+    target.dispatchEvent(
+      createPointerEvent('pointerup', x, y, {
+        button: 0,
+        buttons: 0,
+        detail: 1,
+      }),
+    );
+    target.dispatchEvent(
+      createMouseEvent('mouseup', x, y, {
+        button: 0,
+        buttons: 0,
+        detail: 1,
+      }),
+    );
+    selectionActive = false;
+    selectionTarget = null;
+  }
+
   function dispatchClickSequence(target, x, y, options) {
     options = options || {};
     var button = options.button != null ? options.button : 0;
@@ -624,6 +759,9 @@
 
     click: function (button, nativeX, nativeY) {
       button = button == null ? 0 : button;
+      if (selectionActive) {
+        this.cancelSelection();
+      }
       if (nativeX != null && nativeY != null) {
         this.moveTo(nativeX, nativeY);
       }
@@ -725,6 +863,91 @@
       if (deltaX !== 0) {
         scrollHorizontalChain(deltaX);
       }
+    },
+
+    beginSelection: function (nativeX, nativeY) {
+      if (selectionActive) {
+        this.cancelSelection();
+      }
+      var coords = toViewportCoords(nativeX, nativeY);
+      var x = coords.x;
+      var y = coords.y;
+      var target = resolveSelectionTarget(x, y);
+
+      selectionActive = true;
+      selectionTarget = target;
+      selectionStartX = x;
+      selectionStartY = y;
+
+      dispatchHoverTransition(target, x, y);
+      dispatchSelectionDown(target, x, y);
+
+      lastElement = target;
+      lastX = x;
+      lastY = y;
+
+      return {
+        x: x,
+        y: y,
+        tag: target ? target.tagName : null,
+        active: true,
+      };
+    },
+
+    updateSelection: function (nativeX, nativeY) {
+      if (!selectionActive || !selectionTarget) {
+        return { active: false };
+      }
+      var coords = toViewportCoords(nativeX, nativeY);
+      var x = coords.x;
+      var y = coords.y;
+      dispatchSelectionMove(selectionTarget, x, y);
+      return {
+        x: x,
+        y: y,
+        tag: selectionTarget ? selectionTarget.tagName : null,
+        active: true,
+      };
+    },
+
+    endSelection: function (nativeX, nativeY) {
+      if (!selectionActive || !selectionTarget) {
+        return readSelectedText();
+      }
+      var coords = toViewportCoords(nativeX, nativeY);
+      var x = coords.x;
+      var y = coords.y;
+      dispatchSelectionMove(selectionTarget, x, y);
+      dispatchSelectionUp(selectionTarget, x, y);
+      return readSelectedText();
+    },
+
+    cancelSelection: function () {
+      if (!selectionActive || !selectionTarget) {
+        selectionActive = false;
+        selectionTarget = null;
+        return readSelectedText();
+      }
+      dispatchSelectionUp(selectionTarget, lastX, lastY);
+      clearDocumentSelection();
+      return readSelectedText();
+    },
+
+    getSelectedText: function () {
+      return readSelectedText();
+    },
+
+    clearSelection: function () {
+      clearDocumentSelection();
+      return readSelectedText();
+    },
+
+    selectAll: function () {
+      return selectAllDocument();
+    },
+
+    isSelectionActive: function () {
+      return selectionActive;
     },
   };
 })();

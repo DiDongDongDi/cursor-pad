@@ -15,6 +15,8 @@ import '../browser/browser_toolbar.dart';
 import '../browser/desktop_webview.dart';
 import '../browser/tab_manager.dart';
 import '../browser/tab_switcher_hit_tester.dart';
+import '../browser/text_selection_bar.dart';
+import '../browser/text_selection_state.dart';
 import '../browser/toolbar_hit_tester.dart';
 import '../browser/toolbar_visibility.dart';
 import '../cursor/cursor_overlay.dart';
@@ -31,6 +33,8 @@ class BrowserScreen extends StatefulWidget {
 class _BrowserScreenState extends State<BrowserScreen>
     with WidgetsBindingObserver {
   static const double _toolbarContentHeight = 52;
+  static const Duration _selectionAutoClickDelay = Duration(milliseconds: 300);
+  static const Duration _selectionArmedTimeout = Duration(seconds: 3);
 
   late final TabManager _tabManager;
   late final BrowserSettingsRepository _settingsRepository;
@@ -48,6 +52,10 @@ class _BrowserScreenState extends State<BrowserScreen>
   Size _viewportSize = Size.zero;
   double _lastChromeHeight = -1;
   bool _tabSwitcherOpen = false;
+  final TextSelectionState _selectionState = TextSelectionState();
+  Timer? _selectionAutoClickTimer;
+  Timer? _selectionArmedTimeoutTimer;
+  String? _selectedTextPreview;
 
   BrowserTab get _activeTab => _tabManager.activeTab;
   BrowserController get _activeController => _activeTab.controller;
@@ -164,7 +172,15 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
     _tabManager.removeListener(_onTabManagerChanged);
     _tabManager.dispose();
+    _cancelSelectionTimers();
     super.dispose();
+  }
+
+  void _cancelSelectionTimers() {
+    _selectionAutoClickTimer?.cancel();
+    _selectionAutoClickTimer = null;
+    _selectionArmedTimeoutTimer?.cancel();
+    _selectionArmedTimeoutTimer = null;
   }
 
   @override
@@ -366,6 +382,9 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
     final webViewPos = _webViewCursorPosition(context);
     await _activeController.moveCursor(webViewPos.dx, webViewPos.dy);
+    if (_selectionState.armed && _selectionState.dragged) {
+      await _activeController.updateSelection();
+    }
   }
 
   Future<void> _syncCursorToPageImmediate() async {
@@ -374,6 +393,150 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
     final webViewPos = _webViewCursorPosition(context);
     await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
+    if (_selectionState.armed && _selectionState.dragged) {
+      await _activeController.updateSelection();
+    }
+  }
+
+  void _resetSelectionUi() {
+    _selectedTextPreview = null;
+  }
+
+  void _showSelectionBar(String text) {
+    if (text.isEmpty) {
+      _resetSelectionUi();
+      setState(() {});
+      return;
+    }
+    setState(() => _selectedTextPreview = text);
+  }
+
+  Future<void> _refreshSelectionBarFromPage() async {
+    final info = await _activeController.getSelectedText();
+    if (!mounted) {
+      return;
+    }
+    if (info != null && info.hasText) {
+      _showSelectionBar(info.text);
+    }
+  }
+
+  void _armSelectionTimeout() {
+    _selectionArmedTimeoutTimer?.cancel();
+    _selectionArmedTimeoutTimer = Timer(_selectionArmedTimeout, () {
+      if (!mounted || !_selectionState.armed) {
+        return;
+      }
+      unawaited(_cancelActiveSelection(reason: TextSelectionCancelReason.timeout));
+    });
+  }
+
+  Future<void> _cancelActiveSelection({
+    TextSelectionCancelReason reason = TextSelectionCancelReason.manual,
+  }) async {
+    _cancelSelectionTimers();
+    if (_selectionState.armed) {
+      await _activeController.cancelSelection();
+    }
+    _selectionState.onCancel(reason: reason);
+    _activeController.selectionArmed = false;
+  }
+
+  Future<void> _beginTapLockSelection() async {
+    await _syncCursorToPageImmediate();
+    await _activeController.beginSelection();
+    _selectionState.onBeginSelection();
+    _activeController.selectionArmed = true;
+    _armSelectionTimeout();
+
+    _selectionAutoClickTimer?.cancel();
+    _selectionAutoClickTimer = Timer(_selectionAutoClickDelay, () {
+      if (!mounted || !_selectionState.shouldAutoClick) {
+        return;
+      }
+      _selectionState.onAutoClickTimer();
+      unawaited(_completeAutoClick());
+    });
+  }
+
+  Future<void> _completeAutoClick() async {
+    await _cancelActiveSelection(reason: TextSelectionCancelReason.timeout);
+    await _syncCursorToPageImmediate();
+    await _activeController.click(skipNativeTouch: false);
+  }
+
+  Future<void> _commitTapLockSelection() async {
+    _cancelSelectionTimers();
+    await _syncCursorToPageImmediate();
+    final info = await _activeController.endSelection();
+    _selectionState.onSelectionCommitted();
+    _activeController.selectionArmed = false;
+    if (info != null && info.hasText) {
+      _showSelectionBar(info.text);
+    } else {
+      _resetSelectionUi();
+      if (mounted) {
+        setState(() {});
+      }
+    }
+  }
+
+  Future<void> _handleWebContentTap() async {
+    switch (_selectionState.onTap()) {
+      case TextSelectionTapAction.beginSelection:
+        await _beginTapLockSelection();
+      case TextSelectionTapAction.endSelection:
+        await _commitTapLockSelection();
+      case TextSelectionTapAction.clickWithoutSelection:
+        await _cancelActiveSelection();
+        await _syncCursorToPageImmediate();
+        await _activeController.click();
+      case TextSelectionTapAction.ignore:
+        break;
+    }
+  }
+
+  Future<void> _dismissSelectionBar() async {
+    _resetSelectionUi();
+    await _activeController.clearSelection();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _copySelectedText() async {
+    final text = _selectedTextPreview;
+    if (text == null || text.isEmpty) {
+      return;
+    }
+    await TextSelectionBar.copyToClipboard(context, text);
+  }
+
+  Future<void> _selectAllPageText() async {
+    final info = await _activeController.selectAll();
+    if (!mounted) {
+      return;
+    }
+    if (info != null && info.hasText) {
+      _showSelectionBar(info.text);
+    }
+  }
+
+  void _onSelectionDrag() {
+    if (!_selectionState.armed) {
+      return;
+    }
+    _selectionAutoClickTimer?.cancel();
+    _selectionAutoClickTimer = null;
+    _selectionState.onDrag();
+    _armSelectionTimeout();
+  }
+
+  void _onMultiTouchStart() {
+    if (!_selectionState.armed) {
+      return;
+    }
+    unawaited(_cancelActiveSelection(reason: TextSelectionCancelReason.scroll));
   }
 
   void _onMove(Offset delta) {
@@ -399,6 +562,9 @@ class _BrowserScreenState extends State<BrowserScreen>
       _cursorState.position.dy,
       chromeHeight: _chromeHeight(context),
     );
+    if (_selectionState.armed) {
+      _onSelectionDrag();
+    }
     _syncCursorToPage();
   }
 
@@ -520,7 +686,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
 
     await _syncCursorToPageImmediate();
-    await _activeController.click();
+    await _handleWebContentTap();
   }
 
   Future<void> _onDoubleTap() async {
@@ -528,8 +694,14 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
+    _cancelSelectionTimers();
+    if (_selectionState.armed) {
+      await _cancelActiveSelection();
+    }
+
     await _syncCursorToPageImmediate();
     await _activeController.doubleClick();
+    await _refreshSelectionBarFromPage();
   }
 
   Future<void> _onLongPress() async {
@@ -537,11 +709,18 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
+    if (_selectionState.armed) {
+      await _cancelActiveSelection(reason: TextSelectionCancelReason.longPress);
+    }
+
     await _syncCursorToPageImmediate();
     await _activeController.click(button: 2);
   }
 
   Future<void> _onScroll(Offset delta) async {
+    if (_selectionState.armed) {
+      await _cancelActiveSelection(reason: TextSelectionCancelReason.scroll);
+    }
     await _activeController.scroll(delta.dx, delta.dy);
   }
 
@@ -622,6 +801,16 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _handleSystemBack() async {
+    if (_selectedTextPreview != null) {
+      await _dismissSelectionBar();
+      return;
+    }
+
+    if (_selectionState.armed) {
+      await _cancelActiveSelection(reason: TextSelectionCancelReason.back);
+      return;
+    }
+
     if (_urlFocusNode.hasFocus) {
       _urlFocusNode.unfocus();
       return;
@@ -686,7 +875,10 @@ class _BrowserScreenState extends State<BrowserScreen>
         unawaited(_handleSystemBack());
       },
       child: Scaffold(
-      body: TouchpadDetector(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          TouchpadDetector(
         sensitivity: _tabManager.settings.cursorSensitivity,
         scrollSensitivity: _tabManager.settings.scrollSensitivity,
         onMove: _onMove,
@@ -694,6 +886,7 @@ class _BrowserScreenState extends State<BrowserScreen>
         onDoubleTap: _onDoubleTap,
         onLongPress: _onLongPress,
         onScroll: _onScroll,
+        onMultiTouchStart: _onMultiTouchStart,
         child: Stack(
           key: _bodyStackKey,
           fit: StackFit.expand,
@@ -835,6 +1028,20 @@ class _BrowserScreenState extends State<BrowserScreen>
             ),
           ],
         ),
+          ),
+          if (_selectedTextPreview != null)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: MediaQuery.paddingOf(context).bottom + 12,
+              child: TextSelectionBar(
+                previewText: _selectedTextPreview!,
+                onCopy: _copySelectedText,
+                onSelectAll: _selectAllPageText,
+                onDismiss: _dismissSelectionBar,
+              ),
+            ),
+        ],
       ),
       ),
     );

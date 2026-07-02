@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 typedef TouchpadTapCallback = void Function();
 typedef TouchpadMoveCallback = void Function(Offset delta);
 typedef TouchpadScrollCallback = void Function(Offset delta);
+typedef TouchpadMultiTouchCallback = void Function();
 
 class TouchpadDetector extends StatefulWidget {
   const TouchpadDetector({
@@ -16,6 +17,7 @@ class TouchpadDetector extends StatefulWidget {
     required this.onDoubleTap,
     required this.onLongPress,
     required this.onScroll,
+    this.onMultiTouchStart,
     this.moveThreshold = 8,
     this.sensitivity = 1.0,
     this.scrollSensitivity = 1.0,
@@ -27,6 +29,7 @@ class TouchpadDetector extends StatefulWidget {
   final TouchpadTapCallback onDoubleTap;
   final TouchpadTapCallback onLongPress;
   final TouchpadScrollCallback onScroll;
+  final TouchpadMultiTouchCallback? onMultiTouchStart;
   final double moveThreshold;
   final double sensitivity;
   final double scrollSensitivity;
@@ -169,6 +172,7 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
     _lastPanPosition = null;
     _moved = true;
     _cancelLongPress();
+    widget.onMultiTouchStart?.call();
   }
 
   void _onMultiTouchPointerRemoved() {

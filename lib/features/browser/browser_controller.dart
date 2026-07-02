@@ -9,6 +9,7 @@ import '../bookmarks/bookmarks_html.dart';
 import '../../features/settings/browser_settings.dart';
 import '../../platform/webview_touch.dart';
 import 'browser_state.dart';
+import 'selection_info.dart';
 
 class BrowserController {
   BrowserController({
@@ -37,6 +38,7 @@ class BrowserController {
   double? _pendingCursorY;
   double _lastSyncedWidth = 0;
   double _lastSyncedHeight = 0;
+  bool selectionArmed = false;
 
   void Function(BrowserState state)? onStateChanged;
   VoidCallback? onPageReady;
@@ -449,13 +451,15 @@ class BrowserController {
     return false;
   }
 
-  Future<void> click({int button = 0}) async {
+  Future<void> click({int button = 0, bool skipNativeTouch = false}) async {
     final px = _pendingCursorX;
     final py = _pendingCursorY;
     final xArg = px ?? 'null';
     final yArg = py ?? 'null';
 
     if (button == 0 &&
+        !skipNativeTouch &&
+        !selectionArmed &&
         !kIsWeb &&
         defaultTargetPlatform == TargetPlatform.android &&
         px != null &&
@@ -478,13 +482,15 @@ class BrowserController {
     );
   }
 
-  Future<void> doubleClick() async {
+  Future<void> doubleClick({bool skipNativeTouch = false}) async {
     final px = _pendingCursorX;
     final py = _pendingCursorY;
     final xArg = px ?? 'null';
     final yArg = py ?? 'null';
 
-    if (!kIsWeb &&
+    if (!skipNativeTouch &&
+        !selectionArmed &&
+        !kIsWeb &&
         defaultTargetPlatform == TargetPlatform.android &&
         px != null &&
         py != null) {
@@ -503,6 +509,85 @@ class BrowserController {
     await _webViewController?.evaluateJavascript(
       source:
           'window.__cursorPad && window.__cursorPad.scroll($deltaX, $deltaY);',
+    );
+  }
+
+  Future<SelectionInfo?> _parseSelectionResult(dynamic raw) async {
+    if (raw == null) {
+      return null;
+    }
+    try {
+      final decoded = raw is String ? jsonDecode(raw) : raw;
+      if (decoded is Map) {
+        return SelectionInfo.tryParse(decoded.cast<String, dynamic>());
+      }
+    } catch (_) {
+      // Malformed JS return value.
+    }
+    return null;
+  }
+
+  Future<SelectionInfo?> _evaluateSelection(String source) async {
+    try {
+      final raw = await _webViewController?.evaluateJavascript(source: source);
+      return _parseSelectionResult(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _cursorArgs() {
+    final px = _pendingCursorX;
+    final py = _pendingCursorY;
+    final xArg = px ?? 'null';
+    final yArg = py ?? 'null';
+    return '$xArg, $yArg';
+  }
+
+  Future<void> beginSelection() async {
+    final args = _cursorArgs();
+    await _webViewController?.evaluateJavascript(
+      source:
+          'window.__cursorPad && window.__cursorPad.beginSelection($args);',
+    );
+  }
+
+  Future<void> updateSelection() async {
+    final args = _cursorArgs();
+    await _webViewController?.evaluateJavascript(
+      source:
+          'window.__cursorPad && window.__cursorPad.updateSelection($args);',
+    );
+  }
+
+  Future<SelectionInfo?> endSelection() {
+    final args = _cursorArgs();
+    return _evaluateSelection(
+      'JSON.stringify(window.__cursorPad && window.__cursorPad.endSelection($args) || {text:"",isCollapsed:true,length:0});',
+    );
+  }
+
+  Future<SelectionInfo?> cancelSelection() {
+    return _evaluateSelection(
+      'JSON.stringify(window.__cursorPad && window.__cursorPad.cancelSelection() || {text:"",isCollapsed:true,length:0});',
+    );
+  }
+
+  Future<SelectionInfo?> getSelectedText() {
+    return _evaluateSelection(
+      'JSON.stringify(window.__cursorPad && window.__cursorPad.getSelectedText() || {text:"",isCollapsed:true,length:0});',
+    );
+  }
+
+  Future<SelectionInfo?> clearSelection() {
+    return _evaluateSelection(
+      'JSON.stringify(window.__cursorPad && window.__cursorPad.clearSelection() || {text:"",isCollapsed:true,length:0});',
+    );
+  }
+
+  Future<SelectionInfo?> selectAll() {
+    return _evaluateSelection(
+      'JSON.stringify(window.__cursorPad && window.__cursorPad.selectAll() || {text:"",isCollapsed:true,length:0});',
     );
   }
 
