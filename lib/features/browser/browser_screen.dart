@@ -17,7 +17,7 @@ import '../browser/tab_manager.dart';
 import '../browser/tab_switcher_hit_tester.dart';
 import '../browser/toolbar_hit_tester.dart';
 import '../browser/toolbar_visibility.dart';
-import '../browser/url_field_selection.dart';
+import 'url_field_selection.dart';
 import '../cursor/cursor_overlay.dart';
 import '../cursor/cursor_state.dart';
 import '../input/touchpad_detector.dart';
@@ -205,13 +205,22 @@ class _BrowserScreenState extends State<BrowserScreen>
     );
   }
 
-  TextStyle _urlFieldTextStyle(BuildContext context) {
-    return urlFieldDisplayStyle(context);
-  }
-
   RenderBox? _urlFieldRenderBox() {
     return _toolbarHitTester.urlFieldKey.currentContext?.findRenderObject()
         as RenderBox?;
+  }
+
+  /// Must match [urlFieldDisplayStyle] in url_field_selection.dart for caret hit-testing.
+  TextStyle _urlFieldMeasureStyle(BuildContext context) {
+    final theme = Theme.of(context);
+    final base = theme.textTheme.bodyLarge ?? const TextStyle(fontSize: 16);
+    final linkColor = theme.colorScheme.primary;
+    return base.copyWith(
+      color: linkColor,
+      decoration: TextDecoration.underline,
+      decorationColor: linkColor,
+      decorationThickness: 1.5,
+    );
   }
 
   int? _urlOffsetAtCursor() {
@@ -224,7 +233,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       text: _urlController.text,
       globalPoint: globalPos,
       fieldBox: box,
-      style: _urlFieldTextStyle(context),
+      style: _urlFieldMeasureStyle(context),
     );
   }
 
