@@ -422,7 +422,15 @@ class BrowserController {
     await _flushPendingCursor();
   }
 
+  void setPendingCursorPosition(double x, double y) {
+    _pendingCursorX = x;
+    _pendingCursorY = y;
+  }
+
   Future<void> _flushPendingCursor() async {
+    if (dragArmed) {
+      return;
+    }
     final px = _pendingCursorX;
     final py = _pendingCursorY;
     if (px == null || py == null || _webViewController == null) {
@@ -605,30 +613,70 @@ class BrowserController {
   }
 
   Future<void> beginDrag() async {
+    final px = _pendingCursorX;
+    final py = _pendingCursorY;
     final args = _cursorArgs();
+    final useNativeMouse = !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        px != null &&
+        py != null;
+    if (useNativeMouse) {
+      await WebViewTouchSimulator.mouseDragDown(px, py);
+    }
+    final skipSynthetic = useNativeMouse ? 'true' : 'false';
     await _webViewController?.evaluateJavascript(
-      source: 'window.__cursorPad && window.__cursorPad.beginDrag($args);',
+      source:
+          'window.__cursorPad && window.__cursorPad.beginDrag($args, $skipSynthetic);',
     );
   }
 
   Future<void> updateDragAt(double x, double y) async {
     _pendingCursorX = x;
     _pendingCursorY = y;
+    final useNativeMouse =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    if (useNativeMouse) {
+      await WebViewTouchSimulator.mouseDragMove(x, y);
+    }
+    final skipSynthetic = useNativeMouse ? 'true' : 'false';
     await _webViewController?.evaluateJavascript(
-      source: 'window.__cursorPad && window.__cursorPad.updateDrag($x, $y);',
+      source:
+          'window.__cursorPad && window.__cursorPad.updateDrag($x, $y, $skipSynthetic);',
     );
   }
 
   Future<void> endDrag() async {
+    final px = _pendingCursorX;
+    final py = _pendingCursorY;
     final args = _cursorArgs();
+    final useNativeMouse = !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        px != null &&
+        py != null;
+    if (useNativeMouse) {
+      await WebViewTouchSimulator.mouseDragUp(px, py);
+    }
+    final skipSynthetic = useNativeMouse ? 'true' : 'false';
     await _webViewController?.evaluateJavascript(
-      source: 'window.__cursorPad && window.__cursorPad.endDrag($args);',
+      source:
+          'window.__cursorPad && window.__cursorPad.endDrag($args, $skipSynthetic);',
     );
   }
 
   Future<void> cancelDrag() async {
+    final px = _pendingCursorX;
+    final py = _pendingCursorY;
+    final useNativeMouse = !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        px != null &&
+        py != null;
+    if (useNativeMouse) {
+      await WebViewTouchSimulator.mouseDragUp(px, py);
+    }
+    final skipSynthetic = useNativeMouse ? 'true' : 'false';
     await _webViewController?.evaluateJavascript(
-      source: 'window.__cursorPad && window.__cursorPad.cancelDrag();',
+      source:
+          'window.__cursorPad && window.__cursorPad.cancelDrag($skipSynthetic);',
     );
   }
 
