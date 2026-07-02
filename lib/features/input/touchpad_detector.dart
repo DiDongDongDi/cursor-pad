@@ -6,9 +6,6 @@ import 'package:flutter/material.dart';
 typedef TouchpadTapCallback = void Function();
 typedef TouchpadMoveCallback = void Function(Offset delta);
 typedef TouchpadScrollCallback = void Function(Offset delta);
-typedef TouchpadPinchCallback = void Function(double scaleFactor);
-
-enum _TwoFingerMode { undecided, scroll, pinch }
 
 class TouchpadDetector extends StatefulWidget {
   const TouchpadDetector({
@@ -19,7 +16,6 @@ class TouchpadDetector extends StatefulWidget {
     required this.onDoubleTap,
     required this.onLongPress,
     required this.onScroll,
-    required this.onPinch,
     this.moveThreshold = 8,
     this.sensitivity = 1.0,
     this.scrollSensitivity = 1.0,
@@ -31,7 +27,6 @@ class TouchpadDetector extends StatefulWidget {
   final TouchpadTapCallback onDoubleTap;
   final TouchpadTapCallback onLongPress;
   final TouchpadScrollCallback onScroll;
-  final TouchpadPinchCallback onPinch;
   final double moveThreshold;
   final double sensitivity;
   final double scrollSensitivity;
@@ -42,34 +37,16 @@ class TouchpadDetector extends StatefulWidget {
 
 class _TouchpadDetectorState extends State<TouchpadDetector> {
   static const _twoFingerSlop = 12.0;
-  static const _pinchDistanceRate = 0.10;
-  static const _spreadParallelRatio = 1.5;
-  static const _pinchSpreadSlop = 24.0;
-  static const _pinchAbsoluteDistanceSlop = 12.0;
 
   final Map<int, Offset> _pointers = {};
   final Map<int, Offset> _lastPointerPositions = {};
   Offset? _lastPanPosition;
   Offset? _lastMultiTouchCentroid;
-  double? _lastPinchDistance;
   bool _moved = false;
   bool _multiTouchActive = false;
-  Timer? _longPressTimer;
-
-  _TwoFingerMode _twoFingerMode = _TwoFingerMode.undecided;
-  Offset? _gestureStartCentroid;
-  double? _gestureStartDistance;
+  bool _twoFingerScrollActive = false;
   double _accumulatedCentroidTravel = 0;
-  double _accumulatedSpread = 0;
-  double _accumulatedParallel = 0;
-
-  double _pointerDistance() {
-    if (_pointers.length < 2) {
-      return 0;
-    }
-    final positions = _pointers.values.toList(growable: false);
-    return (positions[0] - positions[1]).distance;
-  }
+  Timer? _longPressTimer;
 
   Offset _computeCentroid() {
     if (_pointers.isEmpty) {
@@ -83,20 +60,13 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
   }
 
   void _resetTwoFingerGesture() {
-    _twoFingerMode = _TwoFingerMode.undecided;
-    _gestureStartCentroid = null;
-    _gestureStartDistance = null;
+    _twoFingerScrollActive = false;
     _accumulatedCentroidTravel = 0;
-    _accumulatedSpread = 0;
-    _accumulatedParallel = 0;
   }
 
   void _beginTwoFingerGesture() {
     _resetTwoFingerGesture();
-    _gestureStartCentroid = _computeCentroid();
-    _gestureStartDistance = _pointerDistance();
-    _lastMultiTouchCentroid = _gestureStartCentroid;
-    _lastPinchDistance = _gestureStartDistance;
+    _lastMultiTouchCentroid = _computeCentroid();
     _lastPointerPositions
       ..clear()
       ..addAll(_pointers);
@@ -105,115 +75,20 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
   void _updateMultiTouchCentroid() {
     if (_pointers.length >= 2) {
       _lastMultiTouchCentroid = _computeCentroid();
-      _lastPinchDistance = _pointerDistance();
       _lastPointerPositions
         ..clear()
         ..addAll(_pointers);
     } else {
       _lastMultiTouchCentroid = null;
-      _lastPinchDistance = null;
       _lastPointerPositions.clear();
       _resetTwoFingerGesture();
     }
   }
 
-  ({double spread, double parallel}) _computeFrameSpreadParallel(
-    Offset deltaFirst,
-    Offset deltaSecond,
-    Offset axis,
-  ) {
-    final axisLength = axis.distance;
-    if (axisLength <= 10 ||
-        (deltaFirst == Offset.zero && deltaSecond == Offset.zero)) {
-      return (spread: 0, parallel: 0);
-    }
-
-    final axisUnit = axis / axisLength;
-    if (deltaFirst != Offset.zero && deltaSecond != Offset.zero) {
-      final spreadFirst =
-          deltaFirst.dx * axisUnit.dx + deltaFirst.dy * axisUnit.dy;
-      final spreadSecond = -(deltaSecond.dx * axisUnit.dx +
-          deltaSecond.dy * axisUnit.dy);
-      return (
-        spread: (spreadFirst + spreadSecond).abs(),
-        parallel: (deltaFirst - deltaSecond).distance,
-      );
-    }
-
-    final activeDelta = deltaFirst != Offset.zero ? deltaFirst : deltaSecond;
-    final alongAxis =
-        (activeDelta.dx * axisUnit.dx + activeDelta.dy * axisUnit.dy).abs();
-    final acrossAxis =
-        (activeDelta.dx * -axisUnit.dy + activeDelta.dy * axisUnit.dx).abs();
-    return (spread: alongAxis, parallel: acrossAxis);
-  }
-
-  void _tryLockTwoFingerMode(double distance) {
-    if (_twoFingerMode != _TwoFingerMode.undecided ||
-        _gestureStartDistance == null ||
-        _gestureStartDistance! <= 10) {
-      return;
-    }
-
-    final distanceChangeRate = (distance - _gestureStartDistance!).abs() /
-        _gestureStartDistance!;
-
-    final readyToDecide = _accumulatedCentroidTravel >= _twoFingerSlop ||
-        _accumulatedSpread >= _twoFingerSlop;
-
-    if (!readyToDecide) {
-      return;
-    }
-
-    if (_accumulatedCentroidTravel >= _twoFingerSlop &&
-        _accumulatedSpread < _pinchSpreadSlop) {
-      _twoFingerMode = _TwoFingerMode.scroll;
-      return;
-    }
-
-    if (_accumulatedCentroidTravel >= _twoFingerSlop &&
-        _accumulatedCentroidTravel >= _accumulatedSpread * 0.85) {
-      _twoFingerMode = _TwoFingerMode.scroll;
-      return;
-    }
-
-    final absoluteDistanceChange =
-        (distance - _gestureStartDistance!).abs();
-
-    final spreadDominatesParallel =
-        _accumulatedSpread > _accumulatedParallel * _spreadParallelRatio;
-    final isPurePinch = _accumulatedCentroidTravel < _twoFingerSlop;
-
-    final lockScroll = _accumulatedCentroidTravel >= _twoFingerSlop &&
-        (distanceChangeRate < _pinchDistanceRate ||
-            _accumulatedParallel > _accumulatedSpread * _spreadParallelRatio);
-
-    final lockPinch = distanceChangeRate >= _pinchDistanceRate &&
-        absoluteDistanceChange >= _pinchAbsoluteDistanceSlop &&
-        _accumulatedSpread >= _pinchSpreadSlop &&
-        (isPurePinch ||
-            (_accumulatedCentroidTravel <= _accumulatedSpread * 0.5 &&
-                spreadDominatesParallel));
-
-    if (lockPinch && !lockScroll) {
-      _twoFingerMode = _TwoFingerMode.pinch;
-    } else if (lockScroll) {
-      _twoFingerMode = _TwoFingerMode.scroll;
-    } else if (lockPinch) {
-      _twoFingerMode = _TwoFingerMode.pinch;
-    }
-  }
-
   bool _handleTwoFingerGesture() {
-    final distance = _pointerDistance();
     final centroid = _computeCentroid();
 
-    if (_gestureStartCentroid == null ||
-        _gestureStartDistance == null ||
-        _lastPinchDistance == null ||
-        _lastMultiTouchCentroid == null ||
-        _gestureStartDistance! <= 10) {
-      _lastPinchDistance = distance;
+    if (_lastMultiTouchCentroid == null) {
       _lastMultiTouchCentroid = centroid;
       _lastPointerPositions
         ..clear()
@@ -221,46 +96,18 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
       return true;
     }
 
-    final ids = _pointers.keys.toList(growable: false);
-    if (ids.length < 2) {
-      return true;
-    }
-
-    final first = _pointers[ids[0]]!;
-    final second = _pointers[ids[1]]!;
-    final prevFirst = _lastPointerPositions[ids[0]] ?? first;
-    final prevSecond = _lastPointerPositions[ids[1]] ?? second;
-    final deltaFirst = first - prevFirst;
-    final deltaSecond = second - prevSecond;
-    final axis = second - first;
-
-    final frameMetrics = _computeFrameSpreadParallel(
-      deltaFirst,
-      deltaSecond,
-      axis,
-    );
     final frameCentroidDelta = centroid - _lastMultiTouchCentroid!;
-
     _accumulatedCentroidTravel += frameCentroidDelta.distance;
-    _accumulatedSpread += frameMetrics.spread;
-    _accumulatedParallel += frameMetrics.parallel;
 
-    _tryLockTwoFingerMode(distance);
-
-    if (_twoFingerMode == _TwoFingerMode.scroll) {
+    if (_twoFingerScrollActive ||
+        _accumulatedCentroidTravel >= _twoFingerSlop) {
+      _twoFingerScrollActive = true;
       if (frameCentroidDelta != Offset.zero) {
         final scrollDelta = frameCentroidDelta * widget.scrollSensitivity;
         widget.onScroll(Offset(-scrollDelta.dx, -scrollDelta.dy));
       }
-    } else if (_twoFingerMode == _TwoFingerMode.pinch) {
-      final scaleFactor = distance / _lastPinchDistance!;
-      final scaleDelta = (scaleFactor - 1.0).abs();
-      if (scaleDelta > 0.02) {
-        widget.onPinch(scaleFactor);
-      }
     }
 
-    _lastPinchDistance = distance;
     _lastMultiTouchCentroid = centroid;
     _lastPointerPositions
       ..clear()
@@ -309,7 +156,6 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
       _multiTouchActive = false;
       _lastPanPosition = null;
       _lastMultiTouchCentroid = null;
-      _lastPinchDistance = null;
       _lastPointerPositions.clear();
       _resetTwoFingerGesture();
       _moved = false;

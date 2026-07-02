@@ -124,7 +124,7 @@
 
   function setUserScale(scale) {
     USER_SCALE = Math.max(MIN_USER_SCALE, Math.min(MAX_USER_SCALE, scale));
-    ensureViewportMeta();
+    forceWriteViewportMeta();
   }
 
   function zoomBy(factor) {

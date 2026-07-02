@@ -91,4 +91,49 @@ void main() {
     expect(hitTester.hitTest(center), ToolbarHitTarget.tabsButton);
     expect(find.text('5'), findsOneWidget);
   });
+
+  testWidgets('ToolbarHitTester detects zoom buttons', (WidgetTester tester) async {
+    final hitTester = ToolbarHitTester();
+    final urlController = TextEditingController(text: 'https://example.com');
+    final urlFocusNode = FocusNode();
+
+    addTearDown(urlController.dispose);
+    addTearDown(urlFocusNode.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BrowserToolbar(
+            state: const BrowserState(currentUrl: 'https://example.com'),
+            urlController: urlController,
+            urlFocusNode: urlFocusNode,
+            hitTester: hitTester,
+            tabCount: 1,
+            onSubmit: (_) {},
+            onBack: () {},
+            onForward: () {},
+            onReload: () {},
+            onHome: () {},
+            onBookmark: () {},
+            isBookmarked: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final zoomOutBox = hitTester.zoomOutKey.currentContext!.findRenderObject()
+        as RenderBox;
+    final zoomOutCenter = zoomOutBox.localToGlobal(
+      zoomOutBox.size.center(Offset.zero),
+    );
+    expect(hitTester.hitTest(zoomOutCenter), ToolbarHitTarget.zoomOut);
+
+    final zoomInBox = hitTester.zoomInKey.currentContext!.findRenderObject()
+        as RenderBox;
+    final zoomInCenter = zoomInBox.localToGlobal(
+      zoomInBox.size.center(Offset.zero),
+    );
+    expect(hitTester.hitTest(zoomInCenter), ToolbarHitTarget.zoomIn);
+  });
 }

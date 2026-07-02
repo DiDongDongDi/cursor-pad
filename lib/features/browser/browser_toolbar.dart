@@ -86,7 +86,6 @@ class BrowserToolbar extends StatelessWidget {
                 Expanded(
                   child: Container(
                     height: 40,
-                    margin: const EdgeInsets.only(right: 4),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(24),
                       border: Border.all(color: colorScheme.outline),
@@ -111,6 +110,23 @@ class BrowserToolbar extends StatelessWidget {
                     ),
                   ),
                 ),
+                IconButton(
+                  key: hitTester.zoomOutKey,
+                  tooltip: '缩小',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 20,
+                  onPressed: () {},
+                  icon: const Icon(Icons.zoom_out),
+                ),
+                IconButton(
+                  key: hitTester.zoomInKey,
+                  tooltip: '放大',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 20,
+                  onPressed: () {},
+                  icon: const Icon(Icons.zoom_in),
+                ),
+                const SizedBox(width: 12),
                 _TabCountButton(
                   key: hitTester.tabsButtonKey,
                   count: tabCount,

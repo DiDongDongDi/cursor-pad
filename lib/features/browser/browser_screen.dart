@@ -451,6 +451,10 @@ class _BrowserScreenState extends State<BrowserScreen>
         await _activeController.loadUrl(BrowserSettings.bookmarksHomeUrl);
       case ToolbarHitTarget.bookmark:
         await _onBookmarkPressed();
+      case ToolbarHitTarget.zoomOut:
+        await _activeController.zoomBy(1 / 1.2);
+      case ToolbarHitTarget.zoomIn:
+        await _activeController.zoomBy(1.2);
       case ToolbarHitTarget.tabsButton:
         setState(() => _tabSwitcherOpen = !_tabSwitcherOpen);
       case ToolbarHitTarget.urlField:
@@ -517,10 +521,6 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   Future<void> _onScroll(Offset delta) async {
     await _activeController.scroll(delta.dx, delta.dy);
-  }
-
-  Future<void> _onPinch(double scaleFactor) async {
-    await _activeController.zoomBy(scaleFactor);
   }
 
   Future<void> _onBookmarkPressed() async {
@@ -652,7 +652,6 @@ class _BrowserScreenState extends State<BrowserScreen>
         onDoubleTap: _onDoubleTap,
         onLongPress: _onLongPress,
         onScroll: _onScroll,
-        onPinch: _onPinch,
         child: Stack(
           key: _bodyStackKey,
           fit: StackFit.expand,
