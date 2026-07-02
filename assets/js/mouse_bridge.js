@@ -1036,6 +1036,24 @@
       return selectAllDocument();
     },
 
+    selectWordAt: function (nativeX, nativeY) {
+      var coords = toViewportCoords(nativeX, nativeY);
+      lastX = coords.x;
+      lastY = coords.y;
+      return selectWordAtPoint(coords.x, coords.y);
+    },
+
+    setSelectionRange: function (nativeX1, nativeY1, nativeX2, nativeY2) {
+      var c1 = toViewportCoords(nativeX1, nativeY1);
+      var c2 = toViewportCoords(nativeX2, nativeY2);
+      selectionStartX = c1.x;
+      selectionStartY = c1.y;
+      lastX = c2.x;
+      lastY = c2.y;
+      setSelectionBetweenPoints(c1.x, c1.y, c2.x, c2.y);
+      return readSelectedText();
+    },
+
     isSelectionActive: function () {
       return selectionActive;
     },

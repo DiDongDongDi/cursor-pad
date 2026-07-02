@@ -13,10 +13,10 @@ import '../browser/browser_tab.dart';
 import '../browser/browser_tab_switcher.dart';
 import '../browser/browser_toolbar.dart';
 import '../browser/desktop_webview.dart';
+import '../browser/copy_mode_state.dart';
 import '../browser/tab_manager.dart';
 import '../browser/tab_switcher_hit_tester.dart';
 import '../browser/text_selection_bar.dart';
-import '../browser/text_selection_state.dart';
 import '../browser/toolbar_hit_tester.dart';
 import '../browser/toolbar_visibility.dart';
 import '../cursor/cursor_overlay.dart';
@@ -33,8 +33,6 @@ class BrowserScreen extends StatefulWidget {
 class _BrowserScreenState extends State<BrowserScreen>
     with WidgetsBindingObserver {
   static const double _toolbarContentHeight = 52;
-  static const Duration _selectionAutoClickDelay = Duration(milliseconds: 300);
-  static const Duration _selectionArmedTimeout = Duration(seconds: 3);
 
   late final TabManager _tabManager;
   late final BrowserSettingsRepository _settingsRepository;
@@ -52,10 +50,11 @@ class _BrowserScreenState extends State<BrowserScreen>
   Size _viewportSize = Size.zero;
   double _lastChromeHeight = -1;
   bool _tabSwitcherOpen = false;
-  final TextSelectionState _selectionState = TextSelectionState();
-  Timer? _selectionAutoClickTimer;
-  Timer? _selectionArmedTimeoutTimer;
-  String? _selectedTextPreview;
+  final CopyModeState _copyMode = CopyModeState();
+  Offset? _selectionAnchor;
+  Timer? _selectionPreviewTimer;
+  Timer? _tapDeferTimer;
+  String _selectedTextPreview = '';
 
   BrowserTab get _activeTab => _tabManager.activeTab;
   BrowserController get _activeController => _activeTab.controller;
@@ -172,15 +171,9 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
     _tabManager.removeListener(_onTabManagerChanged);
     _tabManager.dispose();
-    _cancelSelectionTimers();
+    _selectionPreviewTimer?.cancel();
+    _tapDeferTimer?.cancel();
     super.dispose();
-  }
-
-  void _cancelSelectionTimers() {
-    _selectionAutoClickTimer?.cancel();
-    _selectionAutoClickTimer = null;
-    _selectionArmedTimeoutTimer?.cancel();
-    _selectionArmedTimeoutTimer = null;
   }
 
   @override
@@ -381,8 +374,9 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     final webViewPos = _webViewCursorPosition(context);
-    if (_selectionState.armed && _selectionState.dragged) {
-      await _activeController.updateSelectionAt(webViewPos.dx, webViewPos.dy);
+    if (_copyMode.active) {
+      await _activeController.moveCursor(webViewPos.dx, webViewPos.dy);
+      await _updateCopyModeSelection(webViewPos);
       return;
     }
     await _activeController.moveCursor(webViewPos.dx, webViewPos.dy);
@@ -393,152 +387,94 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     final webViewPos = _webViewCursorPosition(context);
-    if (_selectionState.armed && _selectionState.dragged) {
-      await _activeController.updateSelectionAt(webViewPos.dx, webViewPos.dy);
+    if (_copyMode.active) {
+      await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
+      await _updateCopyModeSelection(webViewPos);
       return;
     }
     await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
   }
 
-  void _resetSelectionUi() {
-    _selectedTextPreview = null;
-  }
-
-  void _showSelectionBar(String text) {
-    if (text.isEmpty) {
-      _resetSelectionUi();
-      setState(() {});
+  Future<void> _updateCopyModeSelection(Offset webViewPos) async {
+    final anchor = _selectionAnchor;
+    if (anchor == null) {
       return;
     }
-    setState(() => _selectedTextPreview = text);
+    final info = await _activeController.setSelectionRange(
+      anchor.dx,
+      anchor.dy,
+      webViewPos.dx,
+      webViewPos.dy,
+    );
+    if (info != null && mounted) {
+      _selectedTextPreview = info.text;
+      _scheduleSelectionPreviewUi();
+    }
   }
 
-  Future<void> _refreshSelectionBarFromPage() async {
-    final info = await _activeController.getSelectedText();
+  void _scheduleSelectionPreviewUi() {
+    _selectionPreviewTimer?.cancel();
+    _selectionPreviewTimer = Timer(const Duration(milliseconds: 32), () {
+      if (mounted && _copyMode.active) {
+        setState(() {});
+      }
+    });
+  }
+
+  Future<void> _enterCopyMode() async {
     if (!mounted) {
       return;
     }
-    if (info != null && info.hasText) {
-      _showSelectionBar(info.text);
-    }
-  }
-
-  void _armSelectionTimeout() {
-    _selectionArmedTimeoutTimer?.cancel();
-    _selectionArmedTimeoutTimer = Timer(_selectionArmedTimeout, () {
-      if (!mounted || !_selectionState.armed) {
-        return;
-      }
-      unawaited(_cancelActiveSelection(reason: TextSelectionCancelReason.timeout));
-    });
-  }
-
-  Future<void> _cancelActiveSelection({
-    TextSelectionCancelReason reason = TextSelectionCancelReason.manual,
-  }) async {
-    _cancelSelectionTimers();
-    if (_selectionState.armed) {
-      await _activeController.cancelSelection();
-    }
-    _selectionState.onCancel(reason: reason);
-    _activeController.selectionArmed = false;
-  }
-
-  Future<void> _beginTapLockSelection() async {
+    final webViewPos = _webViewCursorPosition(context);
     await _syncCursorToPageImmediate();
-    await _activeController.beginSelection();
-    _selectionState.onBeginSelection();
+    _selectionAnchor = webViewPos;
+    _copyMode.enter();
     _activeController.selectionArmed = true;
-    _armSelectionTimeout();
 
-    _selectionAutoClickTimer?.cancel();
-    _selectionAutoClickTimer = Timer(_selectionAutoClickDelay, () {
-      if (!mounted || !_selectionState.shouldAutoClick) {
-        return;
-      }
-      _selectionState.onAutoClickTimer();
-      unawaited(_completeAutoClick());
-    });
-  }
-
-  Future<void> _completeAutoClick() async {
-    await _cancelActiveSelection(reason: TextSelectionCancelReason.timeout);
-    await _syncCursorToPageImmediate();
-    await _activeController.click(skipNativeTouch: false);
-  }
-
-  Future<void> _commitTapLockSelection() async {
-    _cancelSelectionTimers();
-    await _syncCursorToPageImmediate();
-    final info = await _activeController.endSelection();
-    _selectionState.onSelectionCommitted();
-    _activeController.selectionArmed = false;
-    if (info != null && info.hasText) {
-      _showSelectionBar(info.text);
-    } else {
-      _resetSelectionUi();
-      if (mounted) {
-        setState(() {});
-      }
+    final info = await _activeController.selectWordAtPoint();
+    if (info != null) {
+      _selectedTextPreview = info.text;
     }
-  }
 
-  Future<void> _handleWebContentTap() async {
-    switch (_selectionState.onTap()) {
-      case TextSelectionTapAction.beginSelection:
-        await _beginTapLockSelection();
-      case TextSelectionTapAction.endSelection:
-        await _commitTapLockSelection();
-      case TextSelectionTapAction.clickWithoutSelection:
-        await _cancelActiveSelection();
-        await _syncCursorToPageImmediate();
-        await _activeController.click();
-      case TextSelectionTapAction.ignore:
-        break;
-    }
-  }
-
-  Future<void> _dismissSelectionBar() async {
-    _resetSelectionUi();
-    await _activeController.clearSelection();
     if (mounted) {
       setState(() {});
     }
   }
 
+  Future<void> _exitCopyMode({bool clearPageSelection = true}) async {
+    _selectionPreviewTimer?.cancel();
+    _copyMode.exit();
+    _selectionAnchor = null;
+    _selectedTextPreview = '';
+    _activeController.selectionArmed = false;
+    if (clearPageSelection) {
+      await _activeController.clearSelection();
+    }
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _dismissCopyMode() async {
+    await _exitCopyMode();
+  }
+
   Future<void> _copySelectedText() async {
     final text = _selectedTextPreview;
-    if (text == null || text.isEmpty) {
+    if (text.isEmpty) {
       return;
     }
     await TextSelectionBar.copyToClipboard(context, text);
+    await _exitCopyMode();
   }
 
   Future<void> _selectAllPageText() async {
     final info = await _activeController.selectAll();
-    if (!mounted) {
+    if (!mounted || !_copyMode.active) {
       return;
     }
-    if (info != null && info.hasText) {
-      _showSelectionBar(info.text);
-    }
-  }
-
-  void _onSelectionDrag() {
-    if (!_selectionState.armed) {
-      return;
-    }
-    _selectionAutoClickTimer?.cancel();
-    _selectionAutoClickTimer = null;
-    _selectionState.onDrag();
-    _armSelectionTimeout();
-  }
-
-  void _onMultiTouchStart() {
-    if (!_selectionState.armed) {
-      return;
-    }
-    unawaited(_cancelActiveSelection(reason: TextSelectionCancelReason.scroll));
+    _selectedTextPreview = info?.text ?? '';
+    setState(() {});
   }
 
   void _onMove(Offset delta) {
@@ -564,9 +500,6 @@ class _BrowserScreenState extends State<BrowserScreen>
       _cursorState.position.dy,
       chromeHeight: _chromeHeight(context),
     );
-    if (_selectionState.armed) {
-      _onSelectionDrag();
-    }
     _syncCursorToPage();
   }
 
@@ -687,8 +620,18 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    await _syncCursorToPageImmediate();
-    await _handleWebContentTap();
+    if (_copyMode.active) {
+      return;
+    }
+
+    _tapDeferTimer?.cancel();
+    _tapDeferTimer = Timer(const Duration(milliseconds: 280), () async {
+      if (!mounted || _copyMode.active) {
+        return;
+      }
+      await _syncCursorToPageImmediate();
+      await _activeController.click();
+    });
   }
 
   Future<void> _onDoubleTap() async {
@@ -696,14 +639,11 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    _cancelSelectionTimers();
-    if (_selectionState.armed) {
-      await _cancelActiveSelection();
+    _tapDeferTimer?.cancel();
+    if (_copyMode.active) {
+      await _exitCopyMode();
     }
-
-    await _syncCursorToPageImmediate();
-    await _activeController.doubleClick();
-    await _refreshSelectionBarFromPage();
+    await _enterCopyMode();
   }
 
   Future<void> _onLongPress() async {
@@ -711,8 +651,8 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    if (_selectionState.armed) {
-      await _cancelActiveSelection(reason: TextSelectionCancelReason.longPress);
+    if (_copyMode.active) {
+      await _exitCopyMode();
     }
 
     await _syncCursorToPageImmediate();
@@ -720,10 +660,17 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _onScroll(Offset delta) async {
-    if (_selectionState.armed) {
-      await _cancelActiveSelection(reason: TextSelectionCancelReason.scroll);
+    if (_copyMode.active) {
+      await _exitCopyMode();
     }
     await _activeController.scroll(delta.dx, delta.dy);
+  }
+
+  void _onMultiTouchStart() {
+    if (!_copyMode.active) {
+      return;
+    }
+    unawaited(_exitCopyMode());
   }
 
   Future<void> _openSettings() async {
@@ -803,13 +750,8 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _handleSystemBack() async {
-    if (_selectedTextPreview != null) {
-      await _dismissSelectionBar();
-      return;
-    }
-
-    if (_selectionState.armed) {
-      await _cancelActiveSelection(reason: TextSelectionCancelReason.back);
+    if (_copyMode.active) {
+      await _exitCopyMode();
       return;
     }
 
@@ -1031,16 +973,16 @@ class _BrowserScreenState extends State<BrowserScreen>
           ],
         ),
           ),
-          if (_selectedTextPreview != null)
+          if (_copyMode.active)
             Positioned(
               left: 12,
               right: 12,
               bottom: MediaQuery.paddingOf(context).bottom + 12,
               child: TextSelectionBar(
-                previewText: _selectedTextPreview!,
+                previewText: _selectedTextPreview,
                 onCopy: _copySelectedText,
                 onSelectAll: _selectAllPageText,
-                onDismiss: _dismissSelectionBar,
+                onDismiss: _dismissCopyMode,
               ),
             ),
         ],

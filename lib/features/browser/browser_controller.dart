@@ -619,6 +619,24 @@ class BrowserController {
     );
   }
 
+  Future<SelectionInfo?> selectWordAtPoint() {
+    final args = _cursorArgs();
+    return _evaluateSelection(
+      'JSON.stringify(window.__cursorPad && window.__cursorPad.selectWordAt($args) || {text:"",isCollapsed:true,length:0});',
+    );
+  }
+
+  Future<SelectionInfo?> setSelectionRange(
+    double x1,
+    double y1,
+    double x2,
+    double y2,
+  ) {
+    return _evaluateSelection(
+      'JSON.stringify(window.__cursorPad && window.__cursorPad.setSelectionRange($x1, $y1, $x2, $y2) || {text:"",isCollapsed:true,length:0});',
+    );
+  }
+
   Future<SelectionInfo?> getSelectedText() {
     return _evaluateSelection(
       'JSON.stringify(window.__cursorPad && window.__cursorPad.getSelectedText() || {text:"",isCollapsed:true,length:0});',
