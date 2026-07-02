@@ -17,8 +17,6 @@ class MainActivity : FlutterActivity() {
     private var dragActive = false
     private var mouseDragDownTime: Long = 0
     private var mouseDragActive = false
-    private var mouseHoverActive = false
-    private var mouseHoverTime: Long = 0
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -93,16 +91,6 @@ class MainActivity : FlutterActivity() {
                             return@setMethodCallHandler
                         }
                         result.success(simulateMouseDragUp(x, y))
-                    }
-
-                    "mouseHoverMove" -> {
-                        val x = call.argument<Double>("x")?.toFloat()
-                        val y = call.argument<Double>("y")?.toFloat()
-                        if (x == null || y == null) {
-                            result.success(false)
-                            return@setMethodCallHandler
-                        }
-                        result.success(simulateMouseHoverMove(x, y))
                     }
 
                     "showIme" -> {
@@ -200,7 +188,6 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun simulateMouseDragDown(x: Float, y: Float): Boolean {
-        cancelActiveMouseHover()
         cancelActiveMouseDrag()
         val webView = findVisibleWebView(window.decorView) ?: return false
 
@@ -287,103 +274,6 @@ class MainActivity : FlutterActivity() {
             0,
         )
         mouseDragActive = false
-    }
-
-    private fun simulateMouseHoverMove(x: Float, y: Float): Boolean {
-        if (mouseDragActive) {
-            return false
-        }
-        val webView = findVisibleWebView(window.decorView) ?: return false
-
-        val density = webView.resources.displayMetrics.density
-        val pxX = x * density
-        val pxY = y * density
-        val eventTime = SystemClock.uptimeMillis()
-
-        if (!mouseHoverActive) {
-            mouseHoverTime = eventTime
-            dispatchHoverEvent(
-                webView,
-                MotionEvent.ACTION_HOVER_ENTER,
-                pxX,
-                pxY,
-                eventTime,
-            )
-            mouseHoverActive = true
-        }
-
-        return dispatchHoverEvent(
-            webView,
-            MotionEvent.ACTION_HOVER_MOVE,
-            pxX,
-            pxY,
-            eventTime,
-        )
-    }
-
-    private fun cancelActiveMouseHover() {
-        if (!mouseHoverActive) {
-            return
-        }
-        val webView = findVisibleWebView(window.decorView) ?: run {
-            mouseHoverActive = false
-            mouseHoverTime = 0
-            return
-        }
-        val eventTime = SystemClock.uptimeMillis()
-        dispatchHoverEvent(
-            webView,
-            MotionEvent.ACTION_HOVER_EXIT,
-            0f,
-            0f,
-            eventTime,
-        )
-        mouseHoverActive = false
-        mouseHoverTime = 0
-    }
-
-    private fun dispatchHoverEvent(
-        webView: WebView,
-        action: Int,
-        pxX: Float,
-        pxY: Float,
-        eventTime: Long,
-    ): Boolean {
-        val properties = arrayOf(
-            MotionEvent.PointerProperties().apply {
-                id = 0
-                toolType = MotionEvent.TOOL_TYPE_MOUSE
-            },
-        )
-        val coords = arrayOf(
-            MotionEvent.PointerCoords().apply {
-                this.x = pxX
-                this.y = pxY
-                pressure = 0f
-                size = 1f
-            },
-        )
-
-        val downTime = if (mouseHoverTime > 0L) mouseHoverTime else eventTime
-        val event = MotionEvent.obtain(
-            downTime,
-            eventTime,
-            action,
-            1,
-            properties,
-            coords,
-            0,
-            0,
-            1f,
-            1f,
-            0,
-            0,
-            InputDevice.SOURCE_MOUSE,
-            0,
-        )
-        val handled = webView.dispatchGenericMotionEvent(event)
-        event.recycle()
-        return handled
     }
 
     private fun cancelActiveDrag() {

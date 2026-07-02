@@ -103,7 +103,6 @@
       shiftKey: !!options.shiftKey,
       altKey: !!options.altKey,
       metaKey: !!options.metaKey,
-      relatedTarget: options.relatedTarget || null,
     });
   }
 
@@ -685,88 +684,25 @@
   function dispatchHoverTransition(nextElement, x, y) {
     if (lastElement && lastElement !== nextElement) {
       lastElement.dispatchEvent(
-        createPointerEvent('pointerout', lastX, lastY, {
-          relatedTarget: nextElement,
-          buttons: 0,
-        }),
-      );
-      lastElement.dispatchEvent(
-        createPointerEvent('pointerleave', lastX, lastY, {
-          relatedTarget: nextElement,
-          buttons: 0,
-        }),
-      );
-      lastElement.dispatchEvent(
         createMouseEvent('mouseout', lastX, lastY, {
           relatedTarget: nextElement,
-          buttons: 0,
-          detail: 0,
         }),
       );
       lastElement.dispatchEvent(
         createMouseEvent('mouseleave', lastX, lastY, {
           relatedTarget: nextElement,
-          buttons: 0,
-          detail: 0,
         }),
       );
     }
 
     if (nextElement && nextElement !== lastElement) {
       nextElement.dispatchEvent(
-        createPointerEvent('pointerover', x, y, {
-          relatedTarget: lastElement,
-          buttons: 0,
-        }),
+        createMouseEvent('mouseover', x, y, { relatedTarget: lastElement }),
       );
       nextElement.dispatchEvent(
-        createPointerEvent('pointerenter', x, y, {
-          relatedTarget: lastElement,
-          buttons: 0,
-        }),
-      );
-      nextElement.dispatchEvent(
-        createMouseEvent('mouseover', x, y, {
-          relatedTarget: lastElement,
-          buttons: 0,
-          detail: 0,
-        }),
-      );
-      nextElement.dispatchEvent(
-        createMouseEvent('mouseenter', x, y, {
-          relatedTarget: lastElement,
-          buttons: 0,
-          detail: 0,
-        }),
+        createMouseEvent('mouseenter', x, y, { relatedTarget: lastElement }),
       );
     }
-  }
-
-  function dispatchPointerMove(target, x, y, options) {
-    options = options || {};
-    target.dispatchEvent(
-      createMouseEvent('mousemove', x, y, {
-        button: options.button != null ? options.button : 0,
-        buttons: options.buttons != null ? options.buttons : 0,
-        detail: options.detail != null ? options.detail : 0,
-      }),
-    );
-    target.dispatchEvent(
-      createPointerEvent('pointermove', x, y, {
-        button: options.button != null ? options.button : 0,
-        buttons: options.buttons != null ? options.buttons : 0,
-        detail: options.detail != null ? options.detail : 0,
-      }),
-    );
-  }
-
-  function syncHoverAt(x, y) {
-    var target = elementAt(x, y);
-    dispatchHoverTransition(target, x, y);
-    lastElement = target;
-    lastX = x;
-    lastY = y;
-    return target;
   }
 
   function readSelectionFromWindow(win) {
@@ -936,11 +872,20 @@
   function dispatchSelectionMove(target, x, y) {
     var currentTarget = elementAt(x, y) || target;
     dispatchHoverTransition(currentTarget, x, y);
-    dispatchPointerMove(currentTarget, x, y, {
-      button: 0,
-      buttons: 1,
-      detail: 0,
-    });
+    currentTarget.dispatchEvent(
+      createMouseEvent('mousemove', x, y, {
+        button: 0,
+        buttons: 1,
+        detail: 0,
+      }),
+    );
+    currentTarget.dispatchEvent(
+      createPointerEvent('pointermove', x, y, {
+        button: 0,
+        buttons: 1,
+        detail: 0,
+      }),
+    );
     lastElement = currentTarget;
     lastX = x;
     lastY = y;
@@ -975,11 +920,20 @@
   function dispatchDragMove(target, x, y) {
     var currentTarget = elementAt(x, y) || target;
     dispatchHoverTransition(currentTarget, x, y);
-    dispatchPointerMove(currentTarget, x, y, {
-      button: 0,
-      buttons: 1,
-      detail: 0,
-    });
+    currentTarget.dispatchEvent(
+      createMouseEvent('mousemove', x, y, {
+        button: 0,
+        buttons: 1,
+        detail: 0,
+      }),
+    );
+    currentTarget.dispatchEvent(
+      createPointerEvent('pointermove', x, y, {
+        button: 0,
+        buttons: 1,
+        detail: 0,
+      }),
+    );
     lastElement = currentTarget;
     lastX = x;
     lastY = y;
@@ -1057,29 +1011,26 @@
       var coords = toViewportCoords(nativeX, nativeY);
       var x = coords.x;
       var y = coords.y;
-      var skipMove = selectionActive || dragActive;
+
+      if (selectionActive || dragActive) {
+        lastX = x;
+        lastY = y;
+        return { x: x, y: y, tag: null, silent: true };
+      }
+
       var target = elementAt(x, y);
 
       dispatchHoverTransition(target, x, y);
 
-      if (target && !skipMove) {
-        dispatchPointerMove(target, x, y, {
-          button: 0,
-          buttons: 0,
-          detail: 0,
-        });
+      if (target) {
+        target.dispatchEvent(createMouseEvent('mousemove', x, y));
       }
 
       lastElement = target;
       lastX = x;
       lastY = y;
 
-      return {
-        x: x,
-        y: y,
-        tag: target ? target.tagName : null,
-        silent: skipMove,
-      };
+      return { x: x, y: y, tag: target ? target.tagName : null };
     },
 
     click: function (button, nativeX, nativeY) {
@@ -1328,8 +1279,8 @@
       lastX = x;
       lastY = y;
 
-      dispatchHoverTransition(target, x, y);
       if (!skipSynthetic) {
+        dispatchHoverTransition(target, x, y);
         dispatchDragDown(target, x, y);
       }
 
@@ -1349,7 +1300,8 @@
       if (!skipSynthetic) {
         dispatchDragMove(dragTarget, coords.x, coords.y);
       } else {
-        syncHoverAt(coords.x, coords.y);
+        lastX = coords.x;
+        lastY = coords.y;
       }
       return {
         x: coords.x,
@@ -1371,7 +1323,8 @@
         dispatchDragMove(dragTarget, x, y);
         dispatchDragUp(x, y);
       } else {
-        syncHoverAt(x, y);
+        lastX = x;
+        lastY = y;
         dragActive = false;
         dragTarget = null;
       }
