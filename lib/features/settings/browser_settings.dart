@@ -1,8 +1,8 @@
 class BrowserSettings {
   const BrowserSettings({
     this.viewportWidth = 1280,
-    this.cursorSensitivity = 1.25,
-    this.scrollSensitivity = 1.5,
+    this.cursorSensitivity = 1.75,
+    this.scrollSensitivity = 2.0,
     this.homeUrl = bookmarksHomeUrl,
   });
 
