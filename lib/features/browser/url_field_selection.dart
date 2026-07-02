@@ -5,6 +5,18 @@ const urlFieldContentPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 10
 
 const urlFieldHeight = 40.0;
 
+TextStyle urlFieldDisplayStyle(BuildContext context) {
+  final theme = Theme.of(context);
+  final base = theme.textTheme.bodyLarge ?? const TextStyle(fontSize: 16);
+  final linkColor = theme.colorScheme.primary;
+  return base.copyWith(
+    color: linkColor,
+    decoration: TextDecoration.underline,
+    decorationColor: linkColor,
+    decorationThickness: 1.5,
+  );
+}
+
 void selectAllUrlText({
   required TextEditingController controller,
   required FocusNode focusNode,

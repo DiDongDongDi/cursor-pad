@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'browser_state.dart';
 import 'toolbar_hit_tester.dart';
+import 'url_field_selection.dart';
 
 class BrowserToolbar extends StatelessWidget {
   const BrowserToolbar({
@@ -94,6 +95,7 @@ class BrowserToolbar extends StatelessWidget {
                       key: hitTester.urlFieldKey,
                       controller: urlController,
                       focusNode: urlFocusNode,
+                      style: urlFieldDisplayStyle(context),
                       textInputAction: TextInputAction.go,
                       decoration: const InputDecoration(
                         hintText: '输入网址',

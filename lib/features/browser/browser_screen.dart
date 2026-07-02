@@ -205,7 +205,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   TextStyle _urlFieldTextStyle(BuildContext context) {
-    return Theme.of(context).textTheme.bodyLarge ?? const TextStyle(fontSize: 16);
+    return urlFieldDisplayStyle(context);
   }
 
   RenderBox? _urlFieldRenderBox() {
