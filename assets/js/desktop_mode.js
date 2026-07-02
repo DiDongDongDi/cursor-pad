@@ -11,6 +11,17 @@
   var USER_SCALE = MIN_USER_SCALE;
   var LAYOUT_STYLE_ID = 'cursorpad-desktop-layout';
   var TOUCH_STYLE_ID = 'cursorpad-touch-patch';
+  var TABLE_SCROLL_WRAPPER_ATTR = 'data-cursorpad-table-scroll';
+  var TABLE_SCROLL_WRAPPER_MARKER = 'data-cursorpad-wrapped';
+  var _wrapTablesPending = false;
+  var _resizeObserverInstalled = false;
+
+  var TABLE_SCROLL_WRAPPER_SELECTOR =
+    '.table-responsive, [class*="table-responsive"], [class*="TableScroll"], ' +
+    '[class*="table-scroll"], [class*="table_wrap"], [class*="table-wrap"], ' +
+    '.ant-table-content, .ant-table-body, .el-table__body-wrapper, ' +
+    '.MuiTableContainer-root, [class*="table-container"], [class*="TableContainer"], ' +
+    '[' + TABLE_SCROLL_WRAPPER_ATTR + ']';
 
   var MOBILE_MEDIA_PATTERN = /max-device-width|min-device-width/i;
 
@@ -343,21 +354,103 @@
   function buildDesktopLayoutCss() {
     return (
       '@media (max-device-width: 99999px), (max-width: 99999px) {' +
-      'table { display: table !important; table-layout: auto !important; width: 100% !important; max-width: 100% !important; }' +
+      'table { display: table !important; table-layout: fixed !important; width: 100% !important; max-width: 100% !important; }' +
       'thead { display: table-header-group !important; }' +
       'tbody { display: table-row-group !important; }' +
       'tfoot { display: table-footer-group !important; }' +
       'colgroup { display: table-column-group !important; }' +
-      'col { display: table-column !important; }' +
+      'col { display: table-column !important; min-width: 0 !important; }' +
       'tr { display: table-row !important; }' +
-      'td, th { display: table-cell !important; white-space: normal !important; ' +
+      'td, th { display: table-cell !important; min-width: 0 !important; white-space: normal !important; ' +
       'word-wrap: break-word !important; overflow-wrap: break-word !important; ' +
       'word-break: normal !important; }' +
-      '.table-responsive, [class*="table-responsive"], [class*="TableScroll"], ' +
-      '[class*="table-scroll"], [class*="table_wrap"], [class*="table-wrap"] { ' +
-      'overflow-x: auto !important; width: 100% !important; -webkit-overflow-scrolling: touch; }' +
+      TABLE_SCROLL_WRAPPER_SELECTOR +
+      ' { overflow-x: auto !important; width: 100% !important; max-width: 100% !important; ' +
+      '-webkit-overflow-scrolling: touch; }' +
       '}'
     );
+  }
+
+  function isInsideScrollWrapper(table) {
+    var parent = table.parentElement;
+    while (parent && parent !== document.documentElement) {
+      if (parent.hasAttribute(TABLE_SCROLL_WRAPPER_ATTR)) {
+        return true;
+      }
+      if (parent.matches && parent.matches(TABLE_SCROLL_WRAPPER_SELECTOR)) {
+        return true;
+      }
+      parent = parent.parentElement;
+    }
+    return false;
+  }
+
+  function getTableContainerWidth(table) {
+    var parent = table.parentElement;
+    if (parent) {
+      var width = parent.clientWidth;
+      if (width > 0) {
+        return width;
+      }
+    }
+    return VIEWPORT_WIDTH;
+  }
+
+  function wrapOverflowingTables(root) {
+    var scope = root || document;
+    var tables = scope.querySelectorAll('table');
+    for (var i = 0; i < tables.length; i++) {
+      var table = tables[i];
+      if (table.hasAttribute(TABLE_SCROLL_WRAPPER_MARKER)) {
+        continue;
+      }
+      if (isInsideScrollWrapper(table)) {
+        continue;
+      }
+
+      var containerWidth = getTableContainerWidth(table);
+      if (table.scrollWidth <= containerWidth + 1) {
+        continue;
+      }
+
+      var parent = table.parentNode;
+      if (!parent) {
+        continue;
+      }
+
+      var wrapper = document.createElement('div');
+      wrapper.setAttribute(TABLE_SCROLL_WRAPPER_ATTR, '');
+      parent.insertBefore(wrapper, table);
+      wrapper.appendChild(table);
+      table.setAttribute(TABLE_SCROLL_WRAPPER_MARKER, '');
+    }
+  }
+
+  function installTableResizeObserver() {
+    if (_resizeObserverInstalled || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    var root = document.documentElement;
+    if (!root) {
+      return;
+    }
+    var observer = new ResizeObserver(function () {
+      scheduleWrapOverflowingTables();
+    });
+    observer.observe(root);
+    _resizeObserverInstalled = true;
+  }
+
+  function scheduleWrapOverflowingTables() {
+    if (_wrapTablesPending) {
+      return;
+    }
+    _wrapTablesPending = true;
+    requestAnimationFrame(function () {
+      _wrapTablesPending = false;
+      wrapOverflowingTables(document);
+      installTableResizeObserver();
+    });
   }
 
   function injectDesktopLayoutCss() {
@@ -398,6 +491,7 @@
     neutralizeMobileStylesheetLinks(document);
     injectDesktopLayoutCss();
     patchDocumentDimensions();
+    scheduleWrapOverflowingTables();
   }
 
   function patchTouchDetection() {
