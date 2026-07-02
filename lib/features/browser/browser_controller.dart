@@ -482,14 +482,13 @@ class BrowserController {
     );
   }
 
-  Future<void> doubleClick({bool skipNativeTouch = false}) async {
+  Future<void> doubleClick() async {
     final px = _pendingCursorX;
     final py = _pendingCursorY;
     final xArg = px ?? 'null';
     final yArg = py ?? 'null';
 
-    if (!skipNativeTouch &&
-        !selectionArmed &&
+    if (!selectionArmed &&
         !kIsWeb &&
         defaultTargetPlatform == TargetPlatform.android &&
         px != null &&
@@ -501,7 +500,7 @@ class BrowserController {
 
     await _webViewController?.evaluateJavascript(
       source:
-          'window.__cursorPad && window.__cursorPad.doubleClick($xArg, $yArg);',
+          'JSON.stringify(window.__cursorPad && window.__cursorPad.doubleClick($xArg, $yArg) || {text:"",isCollapsed:true,length:0});',
     );
   }
 
@@ -545,29 +544,76 @@ class BrowserController {
   }
 
   Future<void> beginSelection() async {
+    final px = _pendingCursorX;
+    final py = _pendingCursorY;
     final args = _cursorArgs();
+    final useNativeDrag = !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        px != null &&
+        py != null;
+    if (useNativeDrag) {
+      await WebViewTouchSimulator.dragDown(px, py);
+    }
+    final skipSynthetic = useNativeDrag ? 'true' : 'false';
     await _webViewController?.evaluateJavascript(
       source:
-          'window.__cursorPad && window.__cursorPad.beginSelection($args);',
+          'window.__cursorPad && window.__cursorPad.beginSelection($args, $skipSynthetic);',
+    );
+  }
+
+  Future<void> updateSelectionAt(double x, double y) async {
+    _pendingCursorX = x;
+    _pendingCursorY = y;
+    final useNativeDrag =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    if (useNativeDrag) {
+      await WebViewTouchSimulator.dragMove(x, y);
+      return;
+    }
+    await _webViewController?.evaluateJavascript(
+      source:
+          'window.__cursorPad && window.__cursorPad.updateSelection($x, $y);',
     );
   }
 
   Future<void> updateSelection() async {
-    final args = _cursorArgs();
-    await _webViewController?.evaluateJavascript(
-      source:
-          'window.__cursorPad && window.__cursorPad.updateSelection($args);',
-    );
+    final px = _pendingCursorX;
+    final py = _pendingCursorY;
+    if (px == null || py == null) {
+      return;
+    }
+    await updateSelectionAt(px, py);
   }
 
-  Future<SelectionInfo?> endSelection() {
+  Future<SelectionInfo?> endSelection() async {
+    final px = _pendingCursorX;
+    final py = _pendingCursorY;
+    final useNativeDrag = !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        px != null &&
+        py != null;
+    if (useNativeDrag) {
+      await WebViewTouchSimulator.dragUp(px, py);
+      return getSelectedText();
+    }
     final args = _cursorArgs();
     return _evaluateSelection(
       'JSON.stringify(window.__cursorPad && window.__cursorPad.endSelection($args) || {text:"",isCollapsed:true,length:0});',
     );
   }
 
-  Future<SelectionInfo?> cancelSelection() {
+  Future<SelectionInfo?> cancelSelection() async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      final px = _pendingCursorX;
+      final py = _pendingCursorY;
+      if (px != null && py != null) {
+        await WebViewTouchSimulator.dragUp(px, py);
+      }
+      await _webViewController?.evaluateJavascript(
+        source: 'window.__cursorPad && window.__cursorPad.cancelSelection();',
+      );
+      return getSelectedText();
+    }
     return _evaluateSelection(
       'JSON.stringify(window.__cursorPad && window.__cursorPad.cancelSelection() || {text:"",isCollapsed:true,length:0});',
     );

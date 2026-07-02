@@ -9,6 +9,7 @@
   var pointerId = 1;
   var selectionActive = false;
   var selectionTarget = null;
+  var selectionSynthetic = false;
   var selectionStartX = 0;
   var selectionStartY = 0;
 
@@ -633,8 +634,81 @@
   }
 
   function resolveSelectionTarget(x, y) {
-    var target = elementAt(x, y) || document.body;
-    return findActionableElement(target) || target;
+    return elementAt(x, y) || document.body || document.documentElement;
+  }
+
+  function caretRangeFromViewportPoint(x, y) {
+    if (document.caretRangeFromPoint) {
+      return document.caretRangeFromPoint(x, y);
+    }
+    if (document.caretPositionFromPoint) {
+      var pos = document.caretPositionFromPoint(x, y);
+      if (!pos || !pos.offsetNode) {
+        return null;
+      }
+      var range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      range.collapse(true);
+      return range;
+    }
+    return null;
+  }
+
+  function setSelectionBetweenPoints(x1, y1, x2, y2) {
+    var startRange = caretRangeFromViewportPoint(x1, y1);
+    var endRange = caretRangeFromViewportPoint(x2, y2);
+    if (!startRange || !endRange) {
+      return false;
+    }
+
+    var range = document.createRange();
+    try {
+      range.setStart(startRange.startContainer, startRange.startOffset);
+      range.setEnd(endRange.startContainer, endRange.startOffset);
+      var sel = window.getSelection();
+      if (!sel) {
+        return false;
+      }
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return !sel.isCollapsed || (x1 === x2 && y1 === y2);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function selectWordAtPoint(x, y) {
+    if (!setSelectionBetweenPoints(x, y, x, y)) {
+      return readSelectedText();
+    }
+
+    var sel = window.getSelection();
+    if (!sel || !sel.isCollapsed) {
+      return readSelectedText();
+    }
+
+    try {
+      if (typeof sel.modify === 'function') {
+        sel.modify('move', 'backward', 'word');
+        sel.modify('extend', 'forward', 'word');
+      }
+    } catch (e) {
+      // Ignore.
+    }
+
+    return readSelectedText();
+  }
+
+  function syncSelectionRange() {
+    if (!selectionActive) {
+      return false;
+    }
+    return setSelectionBetweenPoints(
+      selectionStartX,
+      selectionStartY,
+      lastX,
+      lastY,
+    );
   }
 
   function dispatchSelectionDown(target, x, y) {
@@ -655,24 +729,26 @@
   }
 
   function dispatchSelectionMove(target, x, y) {
-    dispatchHoverTransition(target, x, y);
-    target.dispatchEvent(
+    var currentTarget = elementAt(x, y) || target;
+    dispatchHoverTransition(currentTarget, x, y);
+    currentTarget.dispatchEvent(
       createMouseEvent('mousemove', x, y, {
         button: 0,
         buttons: 1,
         detail: 0,
       }),
     );
-    target.dispatchEvent(
+    currentTarget.dispatchEvent(
       createPointerEvent('pointermove', x, y, {
         button: 0,
         buttons: 1,
         detail: 0,
       }),
     );
-    lastElement = target;
+    lastElement = currentTarget;
     lastX = x;
     lastY = y;
+    syncSelectionRange();
   }
 
   function dispatchSelectionUp(target, x, y) {
@@ -692,6 +768,7 @@
     );
     selectionActive = false;
     selectionTarget = null;
+    selectionSynthetic = false;
   }
 
   function dispatchClickSequence(target, x, y, options) {
@@ -742,6 +819,13 @@
       var coords = toViewportCoords(nativeX, nativeY);
       var x = coords.x;
       var y = coords.y;
+
+      if (selectionActive) {
+        lastX = x;
+        lastY = y;
+        return { x: x, y: y, tag: null, silent: true };
+      }
+
       var target = elementAt(x, y);
 
       dispatchHoverTransition(target, x, y);
@@ -834,12 +918,7 @@
         }),
       );
 
-      return {
-        x: lastX,
-        y: lastY,
-        tag: target ? target.tagName : null,
-        actionable: actionable ? actionable.tagName : null,
-      };
+      return selectWordAtPoint(lastX, lastY);
     },
 
     scroll: function (deltaX, deltaY) {
@@ -865,7 +944,7 @@
       }
     },
 
-    beginSelection: function (nativeX, nativeY) {
+    beginSelection: function (nativeX, nativeY, skipSynthetic) {
       if (selectionActive) {
         this.cancelSelection();
       }
@@ -876,15 +955,18 @@
 
       selectionActive = true;
       selectionTarget = target;
+      selectionSynthetic = !skipSynthetic;
       selectionStartX = x;
       selectionStartY = y;
-
-      dispatchHoverTransition(target, x, y);
-      dispatchSelectionDown(target, x, y);
-
       lastElement = target;
       lastX = x;
       lastY = y;
+
+      if (!skipSynthetic) {
+        dispatchHoverTransition(target, x, y);
+        dispatchSelectionDown(target, x, y);
+        setSelectionBetweenPoints(x, y, x, y);
+      }
 
       return {
         x: x,
@@ -902,12 +984,12 @@
       var x = coords.x;
       var y = coords.y;
       dispatchSelectionMove(selectionTarget, x, y);
-      return {
+      return Object.assign(readSelectedText(), {
         x: x,
         y: y,
         tag: selectionTarget ? selectionTarget.tagName : null,
         active: true,
-      };
+      });
     },
 
     endSelection: function (nativeX, nativeY) {
@@ -918,6 +1000,7 @@
       var x = coords.x;
       var y = coords.y;
       dispatchSelectionMove(selectionTarget, x, y);
+      syncSelectionRange();
       dispatchSelectionUp(selectionTarget, x, y);
       return readSelectedText();
     },
@@ -926,9 +1009,16 @@
       if (!selectionActive || !selectionTarget) {
         selectionActive = false;
         selectionTarget = null;
+        selectionSynthetic = false;
         return readSelectedText();
       }
-      dispatchSelectionUp(selectionTarget, lastX, lastY);
+      if (selectionSynthetic) {
+        dispatchSelectionUp(selectionTarget, lastX, lastY);
+      } else {
+        selectionActive = false;
+        selectionTarget = null;
+        selectionSynthetic = false;
+      }
       clearDocumentSelection();
       return readSelectedText();
     },

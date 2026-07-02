@@ -7,8 +7,11 @@ class WebViewTouchSimulator {
   static const MethodChannel _channel =
       MethodChannel('com.cursorpad.cursor_pad/webview_touch');
 
+  static bool get _isAndroid =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
   static Future<bool> clickAt(double x, double y) async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+    if (!_isAndroid) {
       return false;
     }
     try {
@@ -22,8 +25,53 @@ class WebViewTouchSimulator {
     }
   }
 
+  static Future<bool> dragDown(double x, double y) async {
+    if (!_isAndroid) {
+      return false;
+    }
+    try {
+      final result = await _channel.invokeMethod<bool>('dragDown', {
+        'x': x,
+        'y': y,
+      });
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> dragMove(double x, double y) async {
+    if (!_isAndroid) {
+      return false;
+    }
+    try {
+      final result = await _channel.invokeMethod<bool>('dragMove', {
+        'x': x,
+        'y': y,
+      });
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> dragUp(double x, double y) async {
+    if (!_isAndroid) {
+      return false;
+    }
+    try {
+      final result = await _channel.invokeMethod<bool>('dragUp', {
+        'x': x,
+        'y': y,
+      });
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<bool> showIme() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+    if (!_isAndroid) {
       return false;
     }
     try {

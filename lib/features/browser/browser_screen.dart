@@ -381,10 +381,11 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     final webViewPos = _webViewCursorPosition(context);
-    await _activeController.moveCursor(webViewPos.dx, webViewPos.dy);
     if (_selectionState.armed && _selectionState.dragged) {
-      await _activeController.updateSelection();
+      await _activeController.updateSelectionAt(webViewPos.dx, webViewPos.dy);
+      return;
     }
+    await _activeController.moveCursor(webViewPos.dx, webViewPos.dy);
   }
 
   Future<void> _syncCursorToPageImmediate() async {
@@ -392,10 +393,11 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     final webViewPos = _webViewCursorPosition(context);
-    await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
     if (_selectionState.armed && _selectionState.dragged) {
-      await _activeController.updateSelection();
+      await _activeController.updateSelectionAt(webViewPos.dx, webViewPos.dy);
+      return;
     }
+    await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
   }
 
   void _resetSelectionUi() {
