@@ -482,6 +482,28 @@ class BrowserController {
     );
   }
 
+  Future<void> doubleClick() async {
+    final px = _pendingCursorX;
+    final py = _pendingCursorY;
+    final xArg = px ?? 'null';
+    final yArg = py ?? 'null';
+
+    if (!selectionArmed &&
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        px != null &&
+        py != null) {
+      await WebViewTouchSimulator.clickAt(px, py);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await WebViewTouchSimulator.clickAt(px, py);
+    }
+
+    await _webViewController?.evaluateJavascript(
+      source:
+          'window.__cursorPad && window.__cursorPad.doubleClick($xArg, $yArg);',
+    );
+  }
+
   Future<void> scroll(double deltaX, double deltaY) async {
     await _webViewController?.evaluateJavascript(
       source:

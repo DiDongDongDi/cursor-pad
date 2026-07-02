@@ -918,7 +918,12 @@
         }),
       );
 
-      return selectWordAtPoint(lastX, lastY);
+      return {
+        x: lastX,
+        y: lastY,
+        tag: target ? target.tagName : null,
+        actionable: actionable ? actionable.tagName : null,
+      };
     },
 
     scroll: function (deltaX, deltaY) {

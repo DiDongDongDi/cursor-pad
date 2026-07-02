@@ -14,6 +14,7 @@ class TouchpadDetector extends StatefulWidget {
     required this.child,
     required this.onMove,
     required this.onTap,
+    required this.onDoubleTap,
     required this.onTripleTap,
     required this.onLongPress,
     required this.onScroll,
@@ -26,6 +27,7 @@ class TouchpadDetector extends StatefulWidget {
   final Widget child;
   final TouchpadMoveCallback onMove;
   final TouchpadTapCallback onTap;
+  final TouchpadTapCallback onDoubleTap;
   final TouchpadTapCallback onTripleTap;
   final TouchpadTapCallback onLongPress;
   final TouchpadScrollCallback onScroll;
@@ -173,6 +175,8 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
 
       if (count == 1) {
         widget.onTap();
+      } else if (count == 2) {
+        widget.onDoubleTap();
       } else if (count >= 3) {
         widget.onTripleTap();
       }
