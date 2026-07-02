@@ -53,7 +53,6 @@ class _BrowserScreenState extends State<BrowserScreen>
   final CopyModeState _copyMode = CopyModeState();
   Offset? _selectionAnchor;
   Timer? _selectionPreviewTimer;
-  Timer? _tapDeferTimer;
   String _selectedTextPreview = '';
 
   BrowserTab get _activeTab => _tabManager.activeTab;
@@ -172,7 +171,6 @@ class _BrowserScreenState extends State<BrowserScreen>
     _tabManager.removeListener(_onTabManagerChanged);
     _tabManager.dispose();
     _selectionPreviewTimer?.cancel();
-    _tapDeferTimer?.cancel();
     super.dispose();
   }
 
@@ -624,14 +622,8 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    _tapDeferTimer?.cancel();
-    _tapDeferTimer = Timer(const Duration(milliseconds: 280), () async {
-      if (!mounted || _copyMode.active) {
-        return;
-      }
-      await _syncCursorToPageImmediate();
-      await _activeController.click();
-    });
+    await _syncCursorToPageImmediate();
+    await _activeController.click();
   }
 
   Future<void> _onDoubleTap() async {
@@ -639,7 +631,19 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    _tapDeferTimer?.cancel();
+    if (_copyMode.active) {
+      return;
+    }
+
+    await _syncCursorToPageImmediate();
+    await _activeController.doubleClick();
+  }
+
+  Future<void> _onTripleTap() async {
+    if (_isCursorInChrome(context) || _isCursorInTabSwitcher(context)) {
+      return;
+    }
+
     if (_copyMode.active) {
       await _exitCopyMode();
     }
@@ -828,6 +832,7 @@ class _BrowserScreenState extends State<BrowserScreen>
         onMove: _onMove,
         onTap: _onTap,
         onDoubleTap: _onDoubleTap,
+        onTripleTap: _onTripleTap,
         onLongPress: _onLongPress,
         onScroll: _onScroll,
         onMultiTouchStart: _onMultiTouchStart,

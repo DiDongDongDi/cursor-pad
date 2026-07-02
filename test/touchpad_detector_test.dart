@@ -17,6 +17,7 @@ void main() {
         onMove: onMove,
         onTap: () {},
         onDoubleTap: () {},
+        onTripleTap: () {},
         onLongPress: () {},
         onScroll: onScroll,
         child: const SizedBox.expand(),
@@ -187,5 +188,36 @@ void main() {
     await tester.pumpAndSettle();
 
     expectNoLargeMoveDeltas(moveDeltas);
+  });
+
+  testWidgets('triple tap fires onTripleTap after three quick taps', (tester) async {
+    var tripleTapCount = 0;
+    var singleTapCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TouchpadDetector(
+          onMove: (_) {},
+          onTap: () => singleTapCount++,
+          onDoubleTap: () {},
+          onTripleTap: () => tripleTapCount++,
+          onLongPress: () {},
+          onScroll: (_) {},
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+
+    final finger = await tester.createGesture();
+    for (var i = 0; i < 3; i++) {
+      await finger.down(const Offset(100, 100));
+      await tester.pump();
+      await finger.up();
+      await tester.pump();
+    }
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(tripleTapCount, 1);
+    expect(singleTapCount, 0);
   });
 }

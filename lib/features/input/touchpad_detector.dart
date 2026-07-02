@@ -15,6 +15,7 @@ class TouchpadDetector extends StatefulWidget {
     required this.onMove,
     required this.onTap,
     required this.onDoubleTap,
+    required this.onTripleTap,
     required this.onLongPress,
     required this.onScroll,
     this.onMultiTouchStart,
@@ -27,6 +28,7 @@ class TouchpadDetector extends StatefulWidget {
   final TouchpadMoveCallback onMove;
   final TouchpadTapCallback onTap;
   final TouchpadTapCallback onDoubleTap;
+  final TouchpadTapCallback onTripleTap;
   final TouchpadTapCallback onLongPress;
   final TouchpadScrollCallback onScroll;
   final TouchpadMultiTouchCallback? onMultiTouchStart;
@@ -42,6 +44,7 @@ enum _ScrollAxisLock { none, vertical, horizontal }
 
 class _TouchpadDetectorState extends State<TouchpadDetector> {
   static const _twoFingerSlop = 12.0;
+  static const _multiTapWindow = Duration(milliseconds: 350);
 
   final Map<int, Offset> _pointers = {};
   final Map<int, Offset> _lastPointerPositions = {};
@@ -54,6 +57,9 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
   Offset _accumulatedTwoFingerDelta = Offset.zero;
   _ScrollAxisLock _scrollAxisLock = _ScrollAxisLock.none;
   Timer? _longPressTimer;
+  Timer? _multiTapTimer;
+  int _tapStreak = 0;
+  DateTime? _lastTapAt;
 
   Offset _computeCentroid() {
     if (_pointers.isEmpty) {
@@ -147,7 +153,34 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
   @override
   void dispose() {
     _longPressTimer?.cancel();
+    _multiTapTimer?.cancel();
     super.dispose();
+  }
+
+  void _registerTap() {
+    final now = DateTime.now();
+    if (_lastTapAt != null &&
+        now.difference(_lastTapAt!) > _multiTapWindow) {
+      _tapStreak = 0;
+    }
+
+    _tapStreak++;
+    _lastTapAt = now;
+
+    _multiTapTimer?.cancel();
+    _multiTapTimer = Timer(_multiTapWindow, () {
+      final count = _tapStreak;
+      _tapStreak = 0;
+      _lastTapAt = null;
+
+      if (count == 1) {
+        widget.onTap();
+      } else if (count == 2) {
+        widget.onDoubleTap();
+      } else if (count >= 3) {
+        widget.onTripleTap();
+      }
+    });
   }
 
   void _cancelLongPress() {
@@ -241,7 +274,7 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
         _updateMultiTouchCentroid();
 
         if (wasSinglePointer && !_moved) {
-          widget.onTap();
+          _registerTap();
         }
 
         _onMultiTouchPointerRemoved();
@@ -271,11 +304,7 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
           widget.onScroll(lockedDelta);
         }
       },
-      child: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onDoubleTap: widget.onDoubleTap,
-        child: widget.child,
-      ),
+      child: widget.child,
     );
   }
 }
