@@ -458,6 +458,21 @@ class BrowserController {
     return false;
   }
 
+  Future<void> blurWebInput() async {
+    try {
+      await _webViewController?.evaluateJavascript(
+        source: 'window.__cursorPad && window.__cursorPad.blurFocusedInput();',
+      );
+    } catch (_) {
+      // WebView may be reloading.
+    }
+  }
+
+  Future<void> dismissWebKeyboard() async {
+    await blurWebInput();
+    await WebViewTouchSimulator.hideIme();
+  }
+
   _LinkInfo? _parseLinkInfo(dynamic raw) {
     if (raw == null) {
       return null;
@@ -513,6 +528,8 @@ class BrowserController {
       );
       if (_parseActivateAtNeedsIme(raw)) {
         await WebViewTouchSimulator.showIme();
+      } else {
+        await dismissWebKeyboard();
       }
       return;
     }

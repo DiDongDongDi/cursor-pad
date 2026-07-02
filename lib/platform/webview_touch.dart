@@ -81,4 +81,16 @@ class WebViewTouchSimulator {
       return false;
     }
   }
+
+  static Future<bool> hideIme() async {
+    if (!_isAndroid) {
+      return false;
+    }
+    try {
+      final result = await _channel.invokeMethod<bool>('hideIme');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
 }

@@ -64,6 +64,10 @@ class MainActivity : FlutterActivity() {
                         result.success(showImeForWebView())
                     }
 
+                    "hideIme" -> {
+                        result.success(hideImeForWebView())
+                    }
+
                     else -> result.notImplemented()
                 }
             }
@@ -219,6 +223,13 @@ class MainActivity : FlutterActivity() {
         webView.requestFocus()
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
         return imm.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun hideImeForWebView(): Boolean {
+        val webView = findVisibleWebView(window.decorView)
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        val token = webView?.windowToken ?: currentFocus?.windowToken ?: return false
+        return imm.hideSoftInputFromWindow(token, 0)
     }
 
     private fun isVisibleWebView(view: View): Boolean {

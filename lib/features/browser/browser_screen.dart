@@ -190,11 +190,17 @@ class _BrowserScreenState extends State<BrowserScreen>
     if (_urlFocusNode.hasFocus) {
       _toolbarVisibility.forceShow();
     } else {
+      _dismissKeyboard();
       _toolbarVisibility.onCursorMove(
         _cursorState.position.dy,
         chromeHeight: _chromeHeight(context),
       );
     }
+  }
+
+  void _dismissKeyboard() {
+    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+    unawaited(_activeController.dismissWebKeyboard());
   }
 
   void _selectAllUrlText() {
@@ -253,6 +259,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   void _focusUrlField({bool selectAll = false, bool showKeyboard = true}) {
+    unawaited(_activeController.dismissWebKeyboard());
     _urlFocusNode.requestFocus();
     if (selectAll) {
       _selectAllUrlText();
@@ -645,6 +652,10 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
+    if (_urlFocusNode.hasFocus) {
+      _urlFocusNode.unfocus();
+    }
+
     await _syncCursorToPageImmediate();
     await _activeController.click();
   }
@@ -717,6 +728,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     if (_buttonHeld) {
       await _cancelButtonHeld();
     }
+    _dismissKeyboard();
     await _activeController.scroll(delta.dx, delta.dy);
   }
 
