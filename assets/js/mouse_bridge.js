@@ -1259,9 +1259,9 @@
       return selectionActive;
     },
 
-    beginDrag: function (nativeX, nativeY, skipSynthetic) {
+    beginDrag: function (nativeX, nativeY) {
       if (dragActive) {
-        this.cancelDrag(skipSynthetic);
+        this.cancelDrag();
       }
       if (selectionActive) {
         this.cancelSelection();
@@ -1279,10 +1279,8 @@
       lastX = x;
       lastY = y;
 
-      if (!skipSynthetic) {
-        dispatchHoverTransition(target, x, y);
-        dispatchDragDown(target, x, y);
-      }
+      dispatchHoverTransition(target, x, y);
+      dispatchDragDown(target, x, y);
 
       return {
         x: x,
@@ -1292,17 +1290,12 @@
       };
     },
 
-    updateDrag: function (nativeX, nativeY, skipSynthetic) {
+    updateDrag: function (nativeX, nativeY) {
       if (!dragActive || !dragTarget) {
         return { active: false };
       }
       var coords = toViewportCoords(nativeX, nativeY);
-      if (!skipSynthetic) {
-        dispatchDragMove(dragTarget, coords.x, coords.y);
-      } else {
-        lastX = coords.x;
-        lastY = coords.y;
-      }
+      dispatchDragMove(dragTarget, coords.x, coords.y);
       return {
         x: coords.x,
         y: coords.y,
@@ -1311,7 +1304,7 @@
       };
     },
 
-    endDrag: function (nativeX, nativeY, skipSynthetic) {
+    endDrag: function (nativeX, nativeY) {
       if (!dragActive || !dragTarget) {
         return { active: false };
       }
@@ -1319,15 +1312,8 @@
       var x = coords.x;
       var y = coords.y;
       var tag = dragTarget ? dragTarget.tagName : null;
-      if (!skipSynthetic) {
-        dispatchDragMove(dragTarget, x, y);
-        dispatchDragUp(x, y);
-      } else {
-        lastX = x;
-        lastY = y;
-        dragActive = false;
-        dragTarget = null;
-      }
+      dispatchDragMove(dragTarget, x, y);
+      dispatchDragUp(x, y);
       return {
         x: x,
         y: y,
@@ -1336,18 +1322,13 @@
       };
     },
 
-    cancelDrag: function (skipSynthetic) {
+    cancelDrag: function () {
       if (!dragActive || !dragTarget) {
         dragActive = false;
         dragTarget = null;
         return { active: false };
       }
-      if (!skipSynthetic) {
-        dispatchDragUp(lastX, lastY);
-      } else {
-        dragActive = false;
-        dragTarget = null;
-      }
+      dispatchDragUp(lastX, lastY);
       return { active: false };
     },
 

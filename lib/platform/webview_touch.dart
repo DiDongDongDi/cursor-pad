@@ -70,52 +70,6 @@ class WebViewTouchSimulator {
     }
   }
 
-  /// Trusted mouse drag for chart box-select / zoom (SOURCE_MOUSE).
-  static Future<bool> mouseDragDown(double x, double y) async {
-    if (!_isAndroid) {
-      return false;
-    }
-    try {
-      final result = await _channel.invokeMethod<bool>('mouseDragDown', {
-        'x': x,
-        'y': y,
-      });
-      return result ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static Future<bool> mouseDragMove(double x, double y) async {
-    if (!_isAndroid) {
-      return false;
-    }
-    try {
-      final result = await _channel.invokeMethod<bool>('mouseDragMove', {
-        'x': x,
-        'y': y,
-      });
-      return result ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static Future<bool> mouseDragUp(double x, double y) async {
-    if (!_isAndroid) {
-      return false;
-    }
-    try {
-      final result = await _channel.invokeMethod<bool>('mouseDragUp', {
-        'x': x,
-        'y': y,
-      });
-      return result ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
   static Future<bool> showIme() async {
     if (!_isAndroid) {
       return false;

@@ -1,7 +1,6 @@
 package com.cursorpad.cursor_pad
 
 import android.os.SystemClock
-import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -15,8 +14,6 @@ class MainActivity : FlutterActivity() {
     private val channelName = "com.cursorpad.cursor_pad/webview_touch"
     private var dragDownTime: Long = 0
     private var dragActive = false
-    private var mouseDragDownTime: Long = 0
-    private var mouseDragActive = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -61,36 +58,6 @@ class MainActivity : FlutterActivity() {
                             return@setMethodCallHandler
                         }
                         result.success(simulateDragUp(x, y))
-                    }
-
-                    "mouseDragDown" -> {
-                        val x = call.argument<Double>("x")?.toFloat()
-                        val y = call.argument<Double>("y")?.toFloat()
-                        if (x == null || y == null) {
-                            result.success(false)
-                            return@setMethodCallHandler
-                        }
-                        result.success(simulateMouseDragDown(x, y))
-                    }
-
-                    "mouseDragMove" -> {
-                        val x = call.argument<Double>("x")?.toFloat()
-                        val y = call.argument<Double>("y")?.toFloat()
-                        if (x == null || y == null) {
-                            result.success(false)
-                            return@setMethodCallHandler
-                        }
-                        result.success(simulateMouseDragMove(x, y))
-                    }
-
-                    "mouseDragUp" -> {
-                        val x = call.argument<Double>("x")?.toFloat()
-                        val y = call.argument<Double>("y")?.toFloat()
-                        if (x == null || y == null) {
-                            result.success(false)
-                            return@setMethodCallHandler
-                        }
-                        result.success(simulateMouseDragUp(x, y))
                     }
 
                     "showIme" -> {
@@ -187,97 +154,7 @@ class MainActivity : FlutterActivity() {
         return handled
     }
 
-    private fun simulateMouseDragDown(x: Float, y: Float): Boolean {
-        cancelActiveMouseDrag()
-        val webView = findVisibleWebView(window.decorView) ?: return false
-
-        val density = webView.resources.displayMetrics.density
-        val pxX = x * density
-        val pxY = y * density
-
-        mouseDragDownTime = SystemClock.uptimeMillis()
-        webView.requestFocus()
-        mouseDragActive = dispatchMouse(
-            webView,
-            MotionEvent.ACTION_DOWN,
-            pxX,
-            pxY,
-            mouseDragDownTime,
-            mouseDragDownTime,
-            MotionEvent.BUTTON_PRIMARY,
-        )
-        return mouseDragActive
-    }
-
-    private fun simulateMouseDragMove(x: Float, y: Float): Boolean {
-        if (!mouseDragActive) {
-            return false
-        }
-        val webView = findVisibleWebView(window.decorView) ?: return false
-
-        val density = webView.resources.displayMetrics.density
-        val pxX = x * density
-        val pxY = y * density
-        val eventTime = SystemClock.uptimeMillis()
-
-        return dispatchMouse(
-            webView,
-            MotionEvent.ACTION_MOVE,
-            pxX,
-            pxY,
-            mouseDragDownTime,
-            eventTime,
-            MotionEvent.BUTTON_PRIMARY,
-        )
-    }
-
-    private fun simulateMouseDragUp(x: Float, y: Float): Boolean {
-        if (!mouseDragActive) {
-            return false
-        }
-        val webView = findVisibleWebView(window.decorView) ?: return false
-
-        val density = webView.resources.displayMetrics.density
-        val pxX = x * density
-        val pxY = y * density
-        val eventTime = SystemClock.uptimeMillis()
-
-        val handled = dispatchMouse(
-            webView,
-            MotionEvent.ACTION_UP,
-            pxX,
-            pxY,
-            mouseDragDownTime,
-            eventTime,
-            0,
-        )
-        mouseDragActive = false
-        return handled
-    }
-
-    private fun cancelActiveMouseDrag() {
-        if (!mouseDragActive) {
-            return
-        }
-        val webView = findVisibleWebView(window.decorView) ?: run {
-            mouseDragActive = false
-            return
-        }
-        val eventTime = SystemClock.uptimeMillis()
-        dispatchMouse(
-            webView,
-            MotionEvent.ACTION_CANCEL,
-            0f,
-            0f,
-            mouseDragDownTime,
-            eventTime,
-            0,
-        )
-        mouseDragActive = false
-    }
-
     private fun cancelActiveDrag() {
-        cancelActiveMouseDrag()
         if (!dragActive) {
             return
         }
@@ -295,71 +172,6 @@ class MainActivity : FlutterActivity() {
             eventTime,
         )
         dragActive = false
-    }
-
-    private fun dispatchMouse(
-        webView: WebView,
-        action: Int,
-        pxX: Float,
-        pxY: Float,
-        downTime: Long,
-        eventTime: Long,
-        buttonState: Int,
-    ): Boolean {
-        val properties = arrayOf(
-            MotionEvent.PointerProperties().apply {
-                id = 0
-                toolType = MotionEvent.TOOL_TYPE_MOUSE
-            },
-        )
-        val coords = arrayOf(
-            MotionEvent.PointerCoords().apply {
-                this.x = pxX
-                this.y = pxY
-                pressure = if (action == MotionEvent.ACTION_UP) 0f else 1f
-                size = 1f
-            },
-        )
-
-        val event = MotionEvent.obtain(
-            downTime,
-            eventTime,
-            action,
-            1,
-            properties,
-            coords,
-            0,
-            buttonState,
-            1f,
-            1f,
-            0,
-            0,
-            InputDevice.SOURCE_MOUSE,
-            0,
-        )
-        var handled = webView.dispatchGenericMotionEvent(event)
-        if (!handled) {
-            val touchEvent = MotionEvent.obtain(
-                downTime,
-                eventTime,
-                action,
-                1,
-                properties,
-                coords,
-                0,
-                buttonState,
-                1f,
-                1f,
-                0,
-                0,
-                InputDevice.SOURCE_MOUSE,
-                0,
-            )
-            handled = webView.dispatchTouchEvent(touchEvent)
-            touchEvent.recycle()
-        }
-        event.recycle()
-        return handled
     }
 
     private fun dispatchTouch(

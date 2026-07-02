@@ -457,11 +457,10 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     final webViewPos = _webViewCursorPosition(context);
+    await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
     if (_buttonHeld) {
       await _activeController.updateDragAt(webViewPos.dx, webViewPos.dy);
-      return;
     }
-    await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
   }
 
   Future<void> _cancelButtonHeld() async {
@@ -683,9 +682,9 @@ class _BrowserScreenState extends State<BrowserScreen>
 
     _buttonHeld = true;
     _activeController.dragArmed = true;
-    final webViewPos = _webViewCursorPosition(context);
-    _activeController.setPendingCursorPosition(webViewPos.dx, webViewPos.dy);
+    await _syncCursorToPageImmediate();
     await _activeController.beginDrag();
+    await _syncCursorToPageImmediate();
   }
 
   Future<void> _onButtonUp() async {
