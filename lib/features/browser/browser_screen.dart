@@ -271,7 +271,21 @@ class _BrowserScreenState extends State<BrowserScreen>
     if (_urlCopyMode.active) {
       return;
     }
-    _focusUrlField(selectAll: true);
+
+    final alreadyFocused = _urlFocusNode.hasFocus;
+    if (!alreadyFocused) {
+      _focusUrlField(selectAll: true);
+      return;
+    }
+
+    applyUrlFieldSingleTapSelection(
+      controller: _urlController,
+      focusNode: _urlFocusNode,
+      mounted: mounted,
+      alreadyFocused: true,
+      tapOffset: _urlOffsetAtCursor(),
+    );
+    SystemChannels.textInput.invokeMethod<void>('TextInput.show');
   }
 
   Future<void> _handleUrlFieldDoubleTap() async {

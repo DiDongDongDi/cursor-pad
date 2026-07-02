@@ -22,6 +22,38 @@ void selectAllUrlText({
   });
 }
 
+void placeUrlCaretAtOffset({
+  required TextEditingController controller,
+  required int offset,
+}) {
+  final length = controller.text.length;
+  final clamped = offset.clamp(0, length);
+  controller.selection = TextSelection.collapsed(offset: clamped);
+}
+
+void applyUrlFieldSingleTapSelection({
+  required TextEditingController controller,
+  required FocusNode focusNode,
+  required bool mounted,
+  required bool alreadyFocused,
+  int? tapOffset,
+}) {
+  if (!alreadyFocused) {
+    selectAllUrlText(
+      controller: controller,
+      focusNode: focusNode,
+      mounted: mounted,
+    );
+    return;
+  }
+
+  final fallback = controller.selection.extentOffset;
+  placeUrlCaretAtOffset(
+    controller: controller,
+    offset: tapOffset ?? fallback,
+  );
+}
+
 bool isUrlWordChar(String char) {
   if (char.isEmpty) {
     return false;

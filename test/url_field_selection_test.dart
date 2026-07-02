@@ -86,6 +86,115 @@ void main() {
     );
   });
 
+  test('placeUrlCaretAtOffset sets collapsed selection at offset', () {
+    const url = 'https://example.com';
+    final controller = TextEditingController(text: url);
+    addTearDown(controller.dispose);
+
+    placeUrlCaretAtOffset(controller: controller, offset: 8);
+    expect(controller.selection, const TextSelection.collapsed(offset: 8));
+  });
+
+  test('placeUrlCaretAtOffset clamps offset to text bounds', () {
+    const url = 'https://example.com';
+    final controller = TextEditingController(text: url);
+    addTearDown(controller.dispose);
+
+    placeUrlCaretAtOffset(controller: controller, offset: -5);
+    expect(controller.selection, const TextSelection.collapsed(offset: 0));
+
+    placeUrlCaretAtOffset(controller: controller, offset: 999);
+    expect(
+      controller.selection,
+      TextSelection.collapsed(offset: url.length),
+    );
+  });
+
+  testWidgets('applyUrlFieldSingleTapSelection selects all on first focus',
+      (tester) async {
+    const url = 'https://example.com';
+    final controller = TextEditingController(text: url);
+    final focusNode = FocusNode();
+    var mounted = true;
+
+    addTearDown(controller.dispose);
+    addTearDown(focusNode.dispose);
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: EditableText(
+          controller: controller,
+          focusNode: focusNode,
+          style: const TextStyle(fontSize: 14),
+          cursorColor: const Color(0xFF000000),
+          backgroundCursorColor: const Color(0xFF000000),
+        ),
+      ),
+    );
+
+    focusNode.requestFocus();
+    applyUrlFieldSingleTapSelection(
+      controller: controller,
+      focusNode: focusNode,
+      mounted: mounted,
+      alreadyFocused: false,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      controller.selection,
+      TextSelection(baseOffset: 0, extentOffset: url.length),
+    );
+  });
+
+  test('applyUrlFieldSingleTapSelection places caret when already focused', () {
+    const url = 'https://example.com';
+    final controller = TextEditingController(text: url);
+    final focusNode = FocusNode();
+    const mounted = true;
+
+    addTearDown(controller.dispose);
+    addTearDown(focusNode.dispose);
+
+    controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: url.length,
+    );
+
+    applyUrlFieldSingleTapSelection(
+      controller: controller,
+      focusNode: focusNode,
+      mounted: mounted,
+      alreadyFocused: true,
+      tapOffset: 12,
+    );
+
+    expect(controller.selection, const TextSelection.collapsed(offset: 12));
+  });
+
+  test('applyUrlFieldSingleTapSelection falls back to current extent', () {
+    const url = 'https://example.com';
+    final controller = TextEditingController(text: url);
+    final focusNode = FocusNode();
+    const mounted = true;
+
+    addTearDown(controller.dispose);
+    addTearDown(focusNode.dispose);
+
+    controller.selection = const TextSelection.collapsed(offset: 7);
+
+    applyUrlFieldSingleTapSelection(
+      controller: controller,
+      focusNode: focusNode,
+      mounted: mounted,
+      alreadyFocused: true,
+    );
+
+    expect(controller.selection, const TextSelection.collapsed(offset: 7));
+  });
+
   test('wordSelectionAt selects word at offset', () {
     const url = 'https://example.com/path';
     final exampleStart = url.indexOf('example');
