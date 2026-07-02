@@ -48,6 +48,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   Size _viewportSize = Size.zero;
   double _lastChromeHeight = -1;
   bool _tabSwitcherOpen = false;
+  bool _leftButtonLocked = false;
 
   BrowserTab get _activeTab => _tabManager.activeTab;
   BrowserController get _activeController => _activeTab.controller;
@@ -134,6 +135,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   void _syncActiveTabUi() {
+    unawaited(_releaseLeftButtonLock());
     _cursorState = _activeTab.cursorState;
     _cursorPosition.value = _cursorState.position;
     final state = _activeController.state;
@@ -340,6 +342,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
 
     if (state.isLoading) {
+      unawaited(_releaseLeftButtonLock());
       _toolbarVisibility.forceShow();
     } else {
       _toolbarVisibility.onCursorMove(
@@ -376,6 +379,29 @@ class _BrowserScreenState extends State<BrowserScreen>
     await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
   }
 
+  Future<void> _releaseLeftButtonLock() async {
+    if (!_leftButtonLocked) {
+      return;
+    }
+    await _activeController.endDrag();
+    if (mounted) {
+      setState(() => _leftButtonLocked = false);
+    }
+  }
+
+  Future<void> _toggleLeftButtonLock() async {
+    if (_leftButtonLocked) {
+      await _releaseLeftButtonLock();
+      return;
+    }
+
+    await _syncCursorToPageImmediate();
+    await _activeController.beginDrag();
+    if (mounted) {
+      setState(() => _leftButtonLocked = true);
+    }
+  }
+
   void _onMove(Offset delta) {
     final bounds = _cursorBounds(context);
     if (bounds == Size.zero) {
@@ -399,6 +425,13 @@ class _BrowserScreenState extends State<BrowserScreen>
       _cursorState.position.dy,
       chromeHeight: _chromeHeight(context),
     );
+
+    if (_leftButtonLocked && !_isCursorInChrome(context)) {
+      final webViewPos = _webViewCursorPosition(context);
+      unawaited(_activeController.dragTo(webViewPos.dx, webViewPos.dy));
+      return;
+    }
+
     _syncCursorToPage();
   }
 
@@ -471,6 +504,8 @@ class _BrowserScreenState extends State<BrowserScreen>
         await _activeController.loadUrl(BrowserSettings.bookmarksHomeUrl);
       case ToolbarHitTarget.bookmark:
         await _onBookmarkPressed();
+      case ToolbarHitTarget.leftButtonLock:
+        await _toggleLeftButtonLock();
       case ToolbarHitTarget.zoomOut:
         await _activeController.zoomBy(1 / 1.2);
       case ToolbarHitTarget.zoomIn:
@@ -509,6 +544,10 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _onTap() async {
+    if (_leftButtonLocked) {
+      return;
+    }
+
     if (_isCursorInChrome(context)) {
       await _handleChromeTap();
       return;
@@ -722,6 +761,7 @@ class _BrowserScreenState extends State<BrowserScreen>
                                       urlFocusNode: _urlFocusNode,
                                       hitTester: _toolbarHitTester,
                                       tabCount: _tabManager.tabs.length,
+                                      leftButtonLocked: _leftButtonLocked,
                                       onSubmit: _onUrlSubmitted,
                                       onBack: _activeController.goBack,
                                       onForward: _activeController.goForward,

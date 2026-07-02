@@ -7,6 +7,9 @@
   var nativeWidth = 1;
   var nativeHeight = 1;
   var pointerId = 1;
+  var dragActive = false;
+  var dragButton = 0;
+  var dragTarget = null;
 
   var ACTIONABLE_SELECTOR =
     'a[href], area[href], button, input, select, textarea, label, summary, ' +
@@ -483,6 +486,53 @@
     target.dispatchEvent(createMouseEvent('click', x, y, eventOptions));
   }
 
+  function dispatchDragDown(target, x, y, button) {
+    var downButtons = button === 2 ? 2 : 1;
+    target.dispatchEvent(
+      createPointerEvent('pointerdown', x, y, {
+        button: button,
+        buttons: downButtons,
+      }),
+    );
+    target.dispatchEvent(
+      createMouseEvent('mousedown', x, y, {
+        button: button,
+        buttons: downButtons,
+      }),
+    );
+  }
+
+  function dispatchDragMove(target, x, y, button) {
+    var moveButtons = button === 2 ? 2 : 1;
+    target.dispatchEvent(
+      createPointerEvent('pointermove', x, y, {
+        button: button,
+        buttons: moveButtons,
+      }),
+    );
+    target.dispatchEvent(
+      createMouseEvent('mousemove', x, y, {
+        button: button,
+        buttons: moveButtons,
+      }),
+    );
+  }
+
+  function dispatchDragUp(target, x, y, button) {
+    target.dispatchEvent(
+      createPointerEvent('pointerup', x, y, {
+        button: button,
+        buttons: 0,
+      }),
+    );
+    target.dispatchEvent(
+      createMouseEvent('mouseup', x, y, {
+        button: button,
+        buttons: 0,
+      }),
+    );
+  }
+
   window.__cursorPad = {
     setNativeSize: function (width, height) {
       nativeWidth = Math.max(width, 1);
@@ -587,6 +637,65 @@
         y: lastY,
         tag: target ? target.tagName : null,
         actionable: actionable ? actionable.tagName : null,
+      };
+    },
+
+    beginDrag: function (button, nativeX, nativeY) {
+      button = button == null ? 0 : button;
+      if (nativeX != null && nativeY != null) {
+        this.moveTo(nativeX, nativeY);
+      }
+      var target = elementAt(lastX, lastY) || document.body;
+      dragTarget = target;
+      dragButton = button;
+      dragActive = true;
+      dispatchDragDown(target, lastX, lastY, button);
+      return {
+        x: lastX,
+        y: lastY,
+        tag: target ? target.tagName : null,
+      };
+    },
+
+    dragTo: function (nativeX, nativeY) {
+      if (!dragActive) {
+        return { active: false };
+      }
+      var coords = toViewportCoords(nativeX, nativeY);
+      var x = coords.x;
+      var y = coords.y;
+      var target = elementAt(x, y);
+
+      dispatchHoverTransition(target, x, y);
+
+      var moveTarget = dragTarget || target || document.body;
+      dispatchDragMove(moveTarget, x, y, dragButton);
+
+      lastElement = target;
+      lastX = x;
+      lastY = y;
+
+      return {
+        active: true,
+        x: x,
+        y: y,
+        tag: target ? target.tagName : null,
+      };
+    },
+
+    endDrag: function () {
+      if (!dragActive) {
+        return { active: false };
+      }
+      var target = dragTarget || elementAt(lastX, lastY) || document.body;
+      dispatchDragUp(target, lastX, lastY, dragButton);
+      dragActive = false;
+      dragTarget = null;
+      return {
+        active: true,
+        x: lastX,
+        y: lastY,
+        tag: target ? target.tagName : null,
       };
     },
 

@@ -18,6 +18,7 @@ class BrowserToolbar extends StatelessWidget {
     required this.onHome,
     required this.onBookmark,
     required this.isBookmarked,
+    required this.leftButtonLocked,
   });
 
   final BrowserState state;
@@ -32,6 +33,7 @@ class BrowserToolbar extends StatelessWidget {
   final VoidCallback onHome;
   final VoidCallback onBookmark;
   final bool isBookmarked;
+  final bool leftButtonLocked;
 
   @override
   Widget build(BuildContext context) {
@@ -82,6 +84,19 @@ class BrowserToolbar extends StatelessWidget {
                   tooltip: '收藏当前页面',
                   onPressed: () {},
                   icon: Icon(isBookmarked ? Icons.star : Icons.star_border),
+                ),
+                IconButton(
+                  key: hitTester.leftButtonLockKey,
+                  tooltip: leftButtonLocked ? '松开左键' : '左键按住',
+                  style: leftButtonLocked
+                      ? IconButton.styleFrom(
+                          backgroundColor: colorScheme.primaryContainer,
+                        )
+                      : null,
+                  onPressed: () {},
+                  icon: Icon(
+                    leftButtonLocked ? Icons.ads_click : Icons.touch_app,
+                  ),
                 ),
                 Expanded(
                   child: Container(

@@ -22,6 +22,51 @@ class WebViewTouchSimulator {
     }
   }
 
+  static Future<bool> touchDownAt(double x, double y) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return false;
+    }
+    try {
+      final result = await _channel.invokeMethod<bool>('touchDownAt', {
+        'x': x,
+        'y': y,
+      });
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> touchMoveTo(double x, double y) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return false;
+    }
+    try {
+      final result = await _channel.invokeMethod<bool>('touchMoveTo', {
+        'x': x,
+        'y': y,
+      });
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> touchUpAt(double x, double y) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return false;
+    }
+    try {
+      final result = await _channel.invokeMethod<bool>('touchUpAt', {
+        'x': x,
+        'y': y,
+      });
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<bool> showIme() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
       return false;

@@ -31,6 +31,7 @@ void main() {
             onHome: () {},
             onBookmark: () {},
             isBookmarked: false,
+            leftButtonLocked: false,
           ),
         ),
       ),
@@ -77,6 +78,7 @@ void main() {
             onHome: () {},
             onBookmark: () {},
             isBookmarked: false,
+            leftButtonLocked: false,
           ),
         ),
       ),
@@ -116,6 +118,7 @@ void main() {
             onHome: () {},
             onBookmark: () {},
             isBookmarked: false,
+            leftButtonLocked: false,
           ),
         ),
       ),
@@ -161,6 +164,7 @@ void main() {
             onHome: () {},
             onBookmark: () {},
             isBookmarked: false,
+            leftButtonLocked: false,
           ),
         ),
       ),
@@ -173,5 +177,45 @@ void main() {
       settingsBox.size.center(Offset.zero),
     );
     expect(hitTester.hitTest(center), ToolbarHitTarget.settings);
+  });
+
+  testWidgets('ToolbarHitTester detects left button lock button',
+      (WidgetTester tester) async {
+    final hitTester = ToolbarHitTester();
+    final urlController = TextEditingController(text: 'https://example.com');
+    final urlFocusNode = FocusNode();
+
+    addTearDown(urlController.dispose);
+    addTearDown(urlFocusNode.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BrowserToolbar(
+            state: const BrowserState(currentUrl: 'https://example.com'),
+            urlController: urlController,
+            urlFocusNode: urlFocusNode,
+            hitTester: hitTester,
+            tabCount: 1,
+            onSubmit: (_) {},
+            onBack: () {},
+            onForward: () {},
+            onReload: () {},
+            onHome: () {},
+            onBookmark: () {},
+            isBookmarked: false,
+            leftButtonLocked: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final lockBox = hitTester.leftButtonLockKey.currentContext!.findRenderObject()
+        as RenderBox;
+    final center = lockBox.localToGlobal(
+      lockBox.size.center(Offset.zero),
+    );
+    expect(hitTester.hitTest(center), ToolbarHitTarget.leftButtonLock);
   });
 }
