@@ -370,22 +370,92 @@
     }
   }
 
-  function findScrollableAt(x, y, axis) {
+  function findVerticalScrollablesAt(x, y) {
+    var result = [];
     var el = elementAt(x, y);
     while (el && el !== document.documentElement) {
       var axes = getScrollAxes(el);
-      if (axis === 'y' && axes.y && !isHorizontalPrimaryScroller(el)) {
-        return el;
-      }
-      if (axis === 'x' && axes.x) {
-        return el;
+      if (axes.y && !isHorizontalPrimaryScroller(el)) {
+        result.push(el);
       }
       el = el.parentElement;
     }
-    if (axis === 'y') {
-      return document.scrollingElement || document.documentElement;
+    var root = document.scrollingElement || document.documentElement;
+    if (result.indexOf(root) === -1) {
+      result.push(root);
     }
-    return null;
+    return result;
+  }
+
+  function findHorizontalScrollablesAt(x, y) {
+    var result = [];
+    var el = elementAt(x, y);
+    while (el && el !== document.documentElement) {
+      var axes = getScrollAxes(el);
+      if (axes.x) {
+        result.push(el);
+      }
+      el = el.parentElement;
+    }
+    return result;
+  }
+
+  function consumeVerticalScroll(el, deltaY) {
+    if (!deltaY) {
+      return 0;
+    }
+    var maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+    if (maxScroll <= 1) {
+      return deltaY;
+    }
+    var next = el.scrollTop + deltaY;
+    if (next <= 0) {
+      el.scrollTop = 0;
+      return next;
+    }
+    if (next >= maxScroll) {
+      el.scrollTop = maxScroll;
+      return next - maxScroll;
+    }
+    el.scrollTop = next;
+    return 0;
+  }
+
+  function consumeHorizontalScroll(el, deltaX) {
+    if (!deltaX) {
+      return 0;
+    }
+    var maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+    if (maxScroll <= 1) {
+      return deltaX;
+    }
+    var next = el.scrollLeft + deltaX;
+    if (next <= 0) {
+      el.scrollLeft = 0;
+      return next;
+    }
+    if (next >= maxScroll) {
+      el.scrollLeft = maxScroll;
+      return next - maxScroll;
+    }
+    el.scrollLeft = next;
+    return 0;
+  }
+
+  function scrollVerticalChain(deltaY) {
+    var chain = findVerticalScrollablesAt(lastX, lastY);
+    var remaining = deltaY;
+    for (var i = 0; i < chain.length && remaining !== 0; i++) {
+      remaining = consumeVerticalScroll(chain[i], remaining);
+    }
+  }
+
+  function scrollHorizontalChain(deltaX) {
+    var chain = findHorizontalScrollablesAt(lastX, lastY);
+    var remaining = deltaX;
+    for (var i = 0; i < chain.length && remaining !== 0; i++) {
+      remaining = consumeHorizontalScroll(chain[i], remaining);
+    }
   }
 
   function findAnchor(el) {
@@ -649,16 +719,11 @@
         deltaY = 0;
       }
 
-      var verticalScrollable =
-        deltaY !== 0 ? findScrollableAt(lastX, lastY, 'y') : null;
-      var horizontalScrollable =
-        deltaX !== 0 ? findScrollableAt(lastX, lastY, 'x') : null;
-
-      if (verticalScrollable) {
-        verticalScrollable.scrollTop += deltaY;
+      if (deltaY !== 0) {
+        scrollVerticalChain(deltaY);
       }
-      if (horizontalScrollable) {
-        horizontalScrollable.scrollLeft += deltaX;
+      if (deltaX !== 0) {
+        scrollHorizontalChain(deltaX);
       }
     },
   };
