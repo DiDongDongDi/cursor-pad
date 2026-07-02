@@ -17,7 +17,7 @@ class TabManager extends ChangeNotifier {
     _tabs.add(_createTabInstance(prepareInitialHtml: true));
   }
 
-  final BrowserSettings _settings;
+  BrowserSettings _settings;
   final BookmarkRepository? _bookmarkRepository;
   final int maxTabs;
   final List<BrowserTab> _tabs = [];
@@ -94,6 +94,11 @@ class TabManager extends ChangeNotifier {
       return;
     }
     _activeIndex = index;
+    notifyListeners();
+  }
+
+  void updateSettings(BrowserSettings settings) {
+    _settings = settings;
     notifyListeners();
   }
 

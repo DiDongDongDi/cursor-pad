@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 
 import '../bookmarks/bookmark.dart';
 import '../settings/browser_settings.dart';
+import '../settings/browser_settings_repository.dart';
+import '../settings/browser_settings_sheet.dart';
 import '../browser/browser_controller.dart';
 import '../browser/browser_state.dart';
 import '../browser/browser_tab.dart';
@@ -31,6 +33,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   static const double _toolbarContentHeight = 52;
 
   late final TabManager _tabManager;
+  late final BrowserSettingsRepository _settingsRepository;
   late final TextEditingController _urlController;
   late final FocusNode _urlFocusNode;
   late final ToolbarVisibilityController _toolbarVisibility;
@@ -54,6 +57,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _tabManager = TabManager(settings: const BrowserSettings());
+    _settingsRepository = BrowserSettingsRepository();
     _tabManager.addListener(_onTabManagerChanged);
     _urlController = TextEditingController(
       text: _activeController.settings.homeUrl,
@@ -72,6 +76,8 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _prepareInitialContent() async {
+    final settings = await _settingsRepository.load();
+    _tabManager.updateSettings(settings);
     await _tabManager.prepareInitialContent();
     if (!mounted) {
       return;
@@ -457,6 +463,8 @@ class _BrowserScreenState extends State<BrowserScreen>
         await _activeController.zoomBy(1.2);
       case ToolbarHitTarget.tabsButton:
         setState(() => _tabSwitcherOpen = !_tabSwitcherOpen);
+      case ToolbarHitTarget.settings:
+        await _openSettings();
       case ToolbarHitTarget.urlField:
         _urlFocusNode.requestFocus();
         _selectAllUrlText();
@@ -521,6 +529,26 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   Future<void> _onScroll(Offset delta) async {
     await _activeController.scroll(delta.dx, delta.dy);
+  }
+
+  Future<void> _openSettings() async {
+    final updated = await showModalBottomSheet<BrowserSettings>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return BrowserSettingsSheet(
+          initialSettings: _tabManager.settings,
+        );
+      },
+    );
+
+    if (updated == null || !mounted) {
+      return;
+    }
+
+    await _settingsRepository.save(updated);
+    _tabManager.updateSettings(updated);
   }
 
   Future<void> _onBookmarkPressed() async {

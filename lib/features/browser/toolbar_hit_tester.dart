@@ -9,6 +9,7 @@ enum ToolbarHitTarget {
   zoomOut,
   zoomIn,
   tabsButton,
+  settings,
   urlField,
 }
 
@@ -21,6 +22,7 @@ class ToolbarHitTester {
   final GlobalKey zoomOutKey = GlobalKey();
   final GlobalKey zoomInKey = GlobalKey();
   final GlobalKey tabsButtonKey = GlobalKey();
+  final GlobalKey settingsKey = GlobalKey();
   final GlobalKey urlFieldKey = GlobalKey();
 
   ToolbarHitTarget? hitTest(Offset globalPosition) {
@@ -47,6 +49,7 @@ class ToolbarHitTester {
         (key: zoomOutKey, target: ToolbarHitTarget.zoomOut),
         (key: zoomInKey, target: ToolbarHitTarget.zoomIn),
         (key: tabsButtonKey, target: ToolbarHitTarget.tabsButton),
+        (key: settingsKey, target: ToolbarHitTarget.settings),
         (key: urlFieldKey, target: ToolbarHitTarget.urlField),
       ];
 }
