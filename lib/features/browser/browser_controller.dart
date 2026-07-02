@@ -170,6 +170,8 @@ class BrowserController {
       return;
     }
 
+    _pendingInitialBookmarksLoad = false;
+
     _emit(
       state.copyWith(
         currentUrl: normalized,
@@ -313,7 +315,12 @@ class BrowserController {
     final urlString = url?.toString() ?? '';
 
     if (_isAboutBlank(urlString)) {
-      if (_pendingInitialBookmarksLoad && _webViewController != null) {
+      if (_pendingInitialBookmarksLoad &&
+          _webViewController != null &&
+          _pendingNavigationUrl == null &&
+          (state.currentUrl.isEmpty ||
+              isBookmarksHomeUrl(state.currentUrl) ||
+              _isAboutBlank(state.currentUrl))) {
         _pendingInitialBookmarksLoad = false;
         await loadBookmarksHome();
       }
