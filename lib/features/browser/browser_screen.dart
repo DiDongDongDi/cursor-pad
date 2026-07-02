@@ -19,6 +19,7 @@ import '../browser/tab_switcher_hit_tester.dart';
 import '../browser/text_selection_bar.dart';
 import '../browser/toolbar_hit_tester.dart';
 import '../browser/toolbar_visibility.dart';
+import '../browser/url_field_selection.dart';
 import '../cursor/cursor_overlay.dart';
 import '../cursor/cursor_state.dart';
 import '../input/touchpad_detector.dart';
@@ -51,9 +52,12 @@ class _BrowserScreenState extends State<BrowserScreen>
   double _lastChromeHeight = -1;
   bool _tabSwitcherOpen = false;
   final CopyModeState _copyMode = CopyModeState();
+  final CopyModeState _urlCopyMode = CopyModeState();
   Offset? _selectionAnchor;
+  int? _urlSelectionAnchor;
   Timer? _selectionPreviewTimer;
   String _selectedTextPreview = '';
+  String _urlSelectedTextPreview = '';
 
   BrowserTab get _activeTab => _tabManager.activeTab;
   BrowserController get _activeController => _activeTab.controller;
@@ -193,8 +197,10 @@ class _BrowserScreenState extends State<BrowserScreen>
   void _onUrlFocusChanged() {
     if (_urlFocusNode.hasFocus) {
       _toolbarVisibility.forceShow();
-      _selectAllUrlText();
     } else {
+      if (_urlCopyMode.active) {
+        unawaited(_exitUrlCopyMode());
+      }
       _toolbarVisibility.onCursorMove(
         _cursorState.position.dy,
         chromeHeight: _chromeHeight(context),
@@ -203,16 +209,153 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   void _selectAllUrlText() {
-    final length = _urlController.text.length;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_urlFocusNode.hasFocus) {
-        return;
+    selectAllUrlText(
+      controller: _urlController,
+      focusNode: _urlFocusNode,
+      mounted: mounted,
+    );
+  }
+
+  TextStyle _urlFieldTextStyle(BuildContext context) {
+    return Theme.of(context).textTheme.bodyLarge ?? const TextStyle(fontSize: 16);
+  }
+
+  RenderBox? _urlFieldRenderBox() {
+    return _toolbarHitTester.urlFieldKey.currentContext?.findRenderObject()
+        as RenderBox?;
+  }
+
+  int? _urlOffsetAtCursor() {
+    final globalPos = _cursorGlobalPosition();
+    final box = _urlFieldRenderBox();
+    if (globalPos == null || box == null || !box.hasSize) {
+      return null;
+    }
+    return textOffsetAtGlobalX(
+      text: _urlController.text,
+      globalPoint: globalPos,
+      fieldBox: box,
+      style: _urlFieldTextStyle(context),
+    );
+  }
+
+  bool _isAddressBarInteraction() {
+    if (_urlCopyMode.active) {
+      return true;
+    }
+    if (_urlFocusNode.hasFocus) {
+      return true;
+    }
+    return _isCursorOverUrlField();
+  }
+
+  bool _isCursorOverUrlField() {
+    final pos = _cursorGlobalPosition();
+    if (pos == null) {
+      return false;
+    }
+    return _toolbarHitTester.hitTest(pos) == ToolbarHitTarget.urlField;
+  }
+
+  void _focusUrlField({bool selectAll = false, bool showKeyboard = true}) {
+    _urlFocusNode.requestFocus();
+    if (selectAll) {
+      _selectAllUrlText();
+    }
+    if (showKeyboard) {
+      SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+    }
+  }
+
+  Future<void> _handleUrlFieldSingleTap() async {
+    if (_urlCopyMode.active) {
+      return;
+    }
+    _focusUrlField(selectAll: true);
+  }
+
+  Future<void> _handleUrlFieldDoubleTap() async {
+    if (_urlCopyMode.active) {
+      return;
+    }
+    _focusUrlField(selectAll: false);
+    final offset = _urlOffsetAtCursor() ?? 0;
+    _urlController.selection =
+        wordSelectionAt(_urlController.text, offset);
+  }
+
+  void _scheduleUrlSelectionPreviewUi() {
+    _selectionPreviewTimer?.cancel();
+    _selectionPreviewTimer = Timer(const Duration(milliseconds: 32), () {
+      if (mounted && _urlCopyMode.active) {
+        setState(() {});
       }
-      _urlController.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: length,
-      );
     });
+  }
+
+  void _updateUrlCopyModeSelection() {
+    final anchor = _urlSelectionAnchor;
+    if (anchor == null) {
+      return;
+    }
+    final extent = _urlOffsetAtCursor();
+    if (extent == null) {
+      return;
+    }
+    final text = _urlController.text;
+    _urlController.selection =
+        selectionFromAnchor(anchor, extent, text.length);
+    _urlSelectedTextPreview =
+        selectedTextFromSelection(text, _urlController.selection);
+    _scheduleUrlSelectionPreviewUi();
+  }
+
+  Future<void> _enterUrlCopyMode() async {
+    if (!mounted) {
+      return;
+    }
+    if (_copyMode.active) {
+      await _exitCopyMode();
+    }
+    _focusUrlField(selectAll: false);
+    final offset = _urlOffsetAtCursor() ?? 0;
+    _urlSelectionAnchor = offset;
+    final text = _urlController.text;
+    _urlController.selection = wordSelectionAt(text, offset);
+    _urlSelectedTextPreview =
+        selectedTextFromSelection(text, _urlController.selection);
+    _urlCopyMode.enter();
+    setState(() {});
+  }
+
+  Future<void> _exitUrlCopyMode() async {
+    _selectionPreviewTimer?.cancel();
+    _urlCopyMode.exit();
+    _urlSelectionAnchor = null;
+    _urlSelectedTextPreview = '';
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _copyUrlSelectedText() async {
+    final text =
+        selectedTextFromSelection(_urlController.text, _urlController.selection);
+    if (text.isEmpty) {
+      return;
+    }
+    await TextSelectionBar.copyToClipboard(context, text);
+    await _exitUrlCopyMode();
+  }
+
+  Future<void> _selectAllUrlForCopyBar() async {
+    if (!mounted || !_urlCopyMode.active) {
+      return;
+    }
+    _urlSelectionAnchor = 0;
+    _selectAllUrlText();
+    _urlSelectedTextPreview = _urlController.text;
+    setState(() {});
   }
 
   void _onToolbarVisibilityChanged() {
@@ -419,6 +562,9 @@ class _BrowserScreenState extends State<BrowserScreen>
     if (!mounted) {
       return;
     }
+    if (_urlCopyMode.active) {
+      await _exitUrlCopyMode();
+    }
     final webViewPos = _webViewCursorPosition(context);
     await _syncCursorToPageImmediate();
     _selectionAnchor = webViewPos;
@@ -480,7 +626,19 @@ class _BrowserScreenState extends State<BrowserScreen>
     _activeTab.cursorState = _cursorState;
     _cursorPosition.value = _cursorState.position;
 
-    if (_urlFocusNode.hasFocus) {
+    if (_urlCopyMode.active) {
+      if (_isCursorOverUrlField()) {
+        _updateUrlCopyModeSelection();
+        _toolbarVisibility.onCursorMove(
+          _cursorState.position.dy,
+          chromeHeight: _chromeHeight(context),
+        );
+        return;
+      }
+      unawaited(_exitUrlCopyMode());
+    }
+
+    if (_urlFocusNode.hasFocus && !_urlCopyMode.active) {
       final chromeHeight =
           MediaQuery.paddingOf(context).top + _toolbarContentHeight;
       if (_cursorState.position.dy >= chromeHeight) {
@@ -575,9 +733,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       case ToolbarHitTarget.settings:
         await _openSettings();
       case ToolbarHitTarget.urlField:
-        _urlFocusNode.requestFocus();
-        _selectAllUrlText();
-        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+        await _handleUrlFieldSingleTap();
       case null:
         break;
     }
@@ -609,12 +765,17 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
+    if (_isAddressBarInteraction()) {
+      await _handleUrlFieldSingleTap();
+      return;
+    }
+
     if (_isCursorInTabSwitcher(context)) {
       await _handleTabSwitcherAreaTap();
       return;
     }
 
-    if (_copyMode.active) {
+    if (_copyMode.active || _urlCopyMode.active) {
       return;
     }
 
@@ -623,11 +784,16 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _onDoubleTap() async {
+    if (_isAddressBarInteraction()) {
+      await _handleUrlFieldDoubleTap();
+      return;
+    }
+
     if (_isCursorInChrome(context) || _isCursorInTabSwitcher(context)) {
       return;
     }
 
-    if (_copyMode.active) {
+    if (_copyMode.active || _urlCopyMode.active) {
       return;
     }
 
@@ -636,6 +802,14 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _onTripleTap() async {
+    if (_isAddressBarInteraction()) {
+      if (_urlCopyMode.active) {
+        await _exitUrlCopyMode();
+      }
+      await _enterUrlCopyMode();
+      return;
+    }
+
     if (_isCursorInChrome(context) || _isCursorInTabSwitcher(context)) {
       return;
     }
@@ -660,6 +834,9 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _onScroll(Offset delta) async {
+    if (_urlCopyMode.active) {
+      await _exitUrlCopyMode();
+    }
     if (_copyMode.active) {
       await _exitCopyMode();
     }
@@ -667,10 +844,12 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   void _onMultiTouchStart() {
-    if (!_copyMode.active) {
-      return;
+    if (_urlCopyMode.active) {
+      unawaited(_exitUrlCopyMode());
     }
-    unawaited(_exitCopyMode());
+    if (_copyMode.active) {
+      unawaited(_exitCopyMode());
+    }
   }
 
   Future<void> _openSettings() async {
@@ -750,6 +929,11 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _handleSystemBack() async {
+    if (_urlCopyMode.active) {
+      await _exitUrlCopyMode();
+      return;
+    }
+
     if (_copyMode.active) {
       await _exitCopyMode();
       return;
@@ -974,16 +1158,24 @@ class _BrowserScreenState extends State<BrowserScreen>
           ],
         ),
           ),
-          if (_copyMode.active)
+          if (_copyMode.active || _urlCopyMode.active)
             Positioned(
               left: 12,
               right: 12,
               bottom: MediaQuery.paddingOf(context).bottom + 12,
               child: TextSelectionBar(
-                previewText: _selectedTextPreview,
-                onCopy: _copySelectedText,
-                onSelectAll: _selectAllPageText,
-                onDismiss: _dismissCopyMode,
+                previewText: _copyMode.active
+                    ? _selectedTextPreview
+                    : _urlSelectedTextPreview,
+                onCopy: _copyMode.active
+                    ? _copySelectedText
+                    : _copyUrlSelectedText,
+                onSelectAll: _copyMode.active
+                    ? _selectAllPageText
+                    : _selectAllUrlForCopyBar,
+                onDismiss: _copyMode.active
+                    ? _dismissCopyMode
+                    : _exitUrlCopyMode,
               ),
             ),
         ],
