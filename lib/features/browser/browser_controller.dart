@@ -38,7 +38,7 @@ class BrowserController {
   double? _pendingCursorY;
   double _lastSyncedWidth = 0;
   double _lastSyncedHeight = 0;
-  bool dragArmed = false;
+  bool selectionArmed = false;
 
   void Function(BrowserState state)? onStateChanged;
   VoidCallback? onPageReady;
@@ -501,7 +501,7 @@ class BrowserController {
 
     if (button == 0 &&
         !skipNativeTouch &&
-        !dragArmed &&
+        !selectionArmed &&
         !kIsWeb &&
         defaultTargetPlatform == TargetPlatform.android &&
         px != null &&
@@ -547,7 +547,7 @@ class BrowserController {
     final yArg = py ?? 'null';
     final skipFirstArg = firstClickAlreadySent ? 'true' : 'false';
 
-    if (!dragArmed &&
+    if (!selectionArmed &&
         !kIsWeb &&
         defaultTargetPlatform == TargetPlatform.android &&
         px != null &&
@@ -602,34 +602,6 @@ class BrowserController {
     final xArg = px ?? 'null';
     final yArg = py ?? 'null';
     return '$xArg, $yArg';
-  }
-
-  Future<void> beginDrag() async {
-    final args = _cursorArgs();
-    await _webViewController?.evaluateJavascript(
-      source: 'window.__cursorPad && window.__cursorPad.beginDrag($args);',
-    );
-  }
-
-  Future<void> updateDragAt(double x, double y) async {
-    _pendingCursorX = x;
-    _pendingCursorY = y;
-    await _webViewController?.evaluateJavascript(
-      source: 'window.__cursorPad && window.__cursorPad.updateDrag($x, $y);',
-    );
-  }
-
-  Future<void> endDrag() async {
-    final args = _cursorArgs();
-    await _webViewController?.evaluateJavascript(
-      source: 'window.__cursorPad && window.__cursorPad.endDrag($args);',
-    );
-  }
-
-  Future<void> cancelDrag() async {
-    await _webViewController?.evaluateJavascript(
-      source: 'window.__cursorPad && window.__cursorPad.cancelDrag();',
-    );
   }
 
   Future<void> beginSelection() async {

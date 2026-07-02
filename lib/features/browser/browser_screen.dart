@@ -50,6 +50,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   double _lastChromeHeight = -1;
   bool _tabSwitcherOpen = false;
   bool _buttonHeld = false;
+  bool _selectionReady = false;
 
   BrowserTab get _activeTab => _tabManager.activeTab;
   BrowserController get _activeController => _activeTab.controller;
@@ -446,7 +447,10 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
     final webViewPos = _webViewCursorPosition(context);
     if (_buttonHeld) {
-      await _activeController.updateDragAt(webViewPos.dx, webViewPos.dy);
+      if (!_selectionReady) {
+        return;
+      }
+      await _activeController.updateSelectionAt(webViewPos.dx, webViewPos.dy);
       return;
     }
     await _activeController.moveCursor(webViewPos.dx, webViewPos.dy);
@@ -457,19 +461,26 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     final webViewPos = _webViewCursorPosition(context);
-    await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
     if (_buttonHeld) {
-      await _activeController.updateDragAt(webViewPos.dx, webViewPos.dy);
+      if (!_selectionReady) {
+        await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
+        return;
+      }
+      await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
+      await _activeController.updateSelectionAt(webViewPos.dx, webViewPos.dy);
+      return;
     }
+    await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
   }
 
   Future<void> _cancelButtonHeld() async {
     if (!_buttonHeld) {
       return;
     }
-    await _activeController.cancelDrag();
+    await _activeController.cancelSelection();
     _buttonHeld = false;
-    _activeController.dragArmed = false;
+    _selectionReady = false;
+    _activeController.selectionArmed = false;
   }
 
   void _onMove(Offset delta) {
@@ -681,9 +692,11 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
 
     _buttonHeld = true;
-    _activeController.dragArmed = true;
+    _selectionReady = false;
+    _activeController.selectionArmed = true;
     await _syncCursorToPageImmediate();
-    await _activeController.beginDrag();
+    await _activeController.beginSelection();
+    _selectionReady = true;
     await _syncCursorToPageImmediate();
   }
 
@@ -692,19 +705,10 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     await _syncCursorToPageImmediate();
-    await _activeController.endDrag();
+    await _activeController.endSelection();
     _buttonHeld = false;
-    _activeController.dragArmed = false;
-  }
-
-  Future<void> _onButtonCancel() async {
-    if (!_buttonHeld) {
-      return;
-    }
-    await _syncCursorToPageImmediate();
-    await _activeController.cancelDrag();
-    _buttonHeld = false;
-    _activeController.dragArmed = false;
+    _selectionReady = false;
+    _activeController.selectionArmed = false;
   }
 
   Future<void> _onLongPress() async {
@@ -891,7 +895,6 @@ class _BrowserScreenState extends State<BrowserScreen>
         onDoubleTap: _onDoubleTap,
         onButtonDown: _onButtonDown,
         onButtonUp: _onButtonUp,
-        onButtonCancel: _onButtonCancel,
         onLongPress: _onLongPress,
         onScroll: _onScroll,
         onMultiTouchStart: _onMultiTouchStart,

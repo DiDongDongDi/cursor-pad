@@ -12,7 +12,6 @@ void main() {
     void Function()? onDoubleTap,
     void Function()? onButtonDown,
     void Function()? onButtonUp,
-    void Function()? onButtonCancel,
   }) {
     return MaterialApp(
       home: TouchpadDetector(
@@ -24,7 +23,6 @@ void main() {
         onDoubleTap: onDoubleTap ?? () {},
         onButtonDown: onButtonDown ?? () {},
         onButtonUp: onButtonUp ?? () {},
-        onButtonCancel: onButtonCancel ?? () {},
         onLongPress: () {},
         onScroll: onScroll,
         child: const SizedBox.expand(),
@@ -221,19 +219,14 @@ void main() {
     var tapCount = 0;
     var doubleTapCount = 0;
     var buttonDownCount = 0;
-    var buttonCancelCount = 0;
-    var buttonUpCount = 0;
 
     await tester.pumpWidget(
       buildTouchpad(
-        moveThreshold: 8,
         onMove: (_) {},
         onScroll: (_) {},
         onTap: () => tapCount++,
         onDoubleTap: () => doubleTapCount++,
         onButtonDown: () => buttonDownCount++,
-        onButtonUp: () => buttonUpCount++,
-        onButtonCancel: () => buttonCancelCount++,
       ),
     );
 
@@ -249,9 +242,7 @@ void main() {
 
     expect(tapCount, 1);
     expect(doubleTapCount, 1);
-    expect(buttonDownCount, 1);
-    expect(buttonCancelCount, 1);
-    expect(buttonUpCount, 0);
+    expect(buttonDownCount, 0);
   });
 
   testWidgets('second press move enters button held and up releases', (tester) async {
@@ -290,12 +281,9 @@ void main() {
     expect(buttonUpCount, 1);
   });
 
-  testWidgets('second press long hold without move cancels drag and double taps', (
-    tester,
-  ) async {
+  testWidgets('second press long hold without move enters button held', (tester) async {
     var buttonDownCount = 0;
     var buttonUpCount = 0;
-    var buttonCancelCount = 0;
     var doubleTapCount = 0;
 
     await tester.pumpWidget(
@@ -306,7 +294,6 @@ void main() {
         onDoubleTap: () => doubleTapCount++,
         onButtonDown: () => buttonDownCount++,
         onButtonUp: () => buttonUpCount++,
-        onButtonCancel: () => buttonCancelCount++,
       ),
     );
 
@@ -317,13 +304,11 @@ void main() {
     await tester.pump();
     await finger.down(const Offset(100, 100));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     expect(buttonDownCount, 1);
     expect(doubleTapCount, 0);
-    await tester.pump(const Duration(milliseconds: 100));
     await finger.up();
     await tester.pump();
-    expect(buttonUpCount, 0);
-    expect(buttonCancelCount, 1);
-    expect(doubleTapCount, 1);
+    expect(buttonUpCount, 1);
   });
 }

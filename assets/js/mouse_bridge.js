@@ -12,10 +12,6 @@
   var selectionSynthetic = false;
   var selectionStartX = 0;
   var selectionStartY = 0;
-  var dragActive = false;
-  var dragTarget = null;
-  var dragStartX = 0;
-  var dragStartY = 0;
 
   var ACTIONABLE_SELECTOR =
     'a[href], area[href], button, input, select, textarea, label, summary, ' +
@@ -893,15 +889,14 @@
   }
 
   function dispatchSelectionUp(target, x, y) {
-    var currentTarget = elementAt(x, y) || target;
-    currentTarget.dispatchEvent(
+    target.dispatchEvent(
       createPointerEvent('pointerup', x, y, {
         button: 0,
         buttons: 0,
         detail: 1,
       }),
     );
-    currentTarget.dispatchEvent(
+    target.dispatchEvent(
       createMouseEvent('mouseup', x, y, {
         button: 0,
         buttons: 0,
@@ -911,53 +906,6 @@
     selectionActive = false;
     selectionTarget = null;
     selectionSynthetic = false;
-  }
-
-  function dispatchDragDown(target, x, y) {
-    dispatchSelectionDown(target, x, y);
-  }
-
-  function dispatchDragMove(target, x, y) {
-    var currentTarget = elementAt(x, y) || target;
-    dispatchHoverTransition(currentTarget, x, y);
-    currentTarget.dispatchEvent(
-      createMouseEvent('mousemove', x, y, {
-        button: 0,
-        buttons: 1,
-        detail: 0,
-      }),
-    );
-    currentTarget.dispatchEvent(
-      createPointerEvent('pointermove', x, y, {
-        button: 0,
-        buttons: 1,
-        detail: 0,
-      }),
-    );
-    lastElement = currentTarget;
-    lastX = x;
-    lastY = y;
-  }
-
-  function dispatchDragUp(x, y) {
-    var currentTarget =
-      elementAt(x, y) || dragTarget || document.body || document.documentElement;
-    currentTarget.dispatchEvent(
-      createPointerEvent('pointerup', x, y, {
-        button: 0,
-        buttons: 0,
-        detail: 1,
-      }),
-    );
-    currentTarget.dispatchEvent(
-      createMouseEvent('mouseup', x, y, {
-        button: 0,
-        buttons: 0,
-        detail: 1,
-      }),
-    );
-    dragActive = false;
-    dragTarget = null;
   }
 
   function dispatchClickSequence(target, x, y, options) {
@@ -1012,7 +960,7 @@
       var x = coords.x;
       var y = coords.y;
 
-      if (selectionActive || dragActive) {
+      if (selectionActive) {
         lastX = x;
         lastY = y;
         return { x: x, y: y, tag: null, silent: true };
@@ -1037,9 +985,6 @@
       button = button == null ? 0 : button;
       if (selectionActive) {
         this.cancelSelection();
-      }
-      if (dragActive) {
-        this.cancelDrag();
       }
       if (nativeX != null && nativeY != null) {
         this.moveTo(nativeX, nativeY);
@@ -1257,83 +1202,6 @@
 
     isSelectionActive: function () {
       return selectionActive;
-    },
-
-    beginDrag: function (nativeX, nativeY) {
-      if (dragActive) {
-        this.cancelDrag();
-      }
-      if (selectionActive) {
-        this.cancelSelection();
-      }
-      var coords = toViewportCoords(nativeX, nativeY);
-      var x = coords.x;
-      var y = coords.y;
-      var target = resolveSelectionTarget(x, y);
-
-      dragActive = true;
-      dragTarget = target;
-      dragStartX = x;
-      dragStartY = y;
-      lastElement = target;
-      lastX = x;
-      lastY = y;
-
-      dispatchHoverTransition(target, x, y);
-      dispatchDragDown(target, x, y);
-
-      return {
-        x: x,
-        y: y,
-        tag: target ? target.tagName : null,
-        active: true,
-      };
-    },
-
-    updateDrag: function (nativeX, nativeY) {
-      if (!dragActive || !dragTarget) {
-        return { active: false };
-      }
-      var coords = toViewportCoords(nativeX, nativeY);
-      dispatchDragMove(dragTarget, coords.x, coords.y);
-      return {
-        x: coords.x,
-        y: coords.y,
-        tag: dragTarget ? dragTarget.tagName : null,
-        active: true,
-      };
-    },
-
-    endDrag: function (nativeX, nativeY) {
-      if (!dragActive || !dragTarget) {
-        return { active: false };
-      }
-      var coords = toViewportCoords(nativeX, nativeY);
-      var x = coords.x;
-      var y = coords.y;
-      var tag = dragTarget ? dragTarget.tagName : null;
-      dispatchDragMove(dragTarget, x, y);
-      dispatchDragUp(x, y);
-      return {
-        x: x,
-        y: y,
-        tag: tag,
-        active: false,
-      };
-    },
-
-    cancelDrag: function () {
-      if (!dragActive || !dragTarget) {
-        dragActive = false;
-        dragTarget = null;
-        return { active: false };
-      }
-      dispatchDragUp(lastX, lastY);
-      return { active: false };
-    },
-
-    isDragActive: function () {
-      return dragActive;
     },
   };
 })();
