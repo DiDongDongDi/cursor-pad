@@ -60,6 +60,39 @@ void main() {
 
     expect(scrollDeltas, isNotEmpty);
     expect(scrollDeltas.last.dy, isNonZero);
+    expect(scrollDeltas.last.dx, 0);
+
+    await finger1.up();
+    await finger2.up();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('two-finger vertical drag ignores incidental horizontal movement', (
+    tester,
+  ) async {
+    final scrollDeltas = <Offset>[];
+
+    await tester.pumpWidget(
+      buildTouchpad(
+        onMove: (_) {},
+        onScroll: scrollDeltas.add,
+      ),
+    );
+
+    final finger1 = await tester.createGesture();
+    final finger2 = await tester.createGesture();
+
+    await finger1.down(const Offset(100, 100));
+    await finger2.down(const Offset(200, 100));
+    await tester.pump();
+
+    await finger1.moveBy(const Offset(4, 40));
+    await finger2.moveBy(const Offset(4, 40));
+    await tester.pump();
+
+    expect(scrollDeltas, isNotEmpty);
+    expect(scrollDeltas.last.dy, isNonZero);
+    expect(scrollDeltas.last.dx, 0);
 
     await finger1.up();
     await finger2.up();
@@ -89,6 +122,7 @@ void main() {
 
     expect(scrollDeltas, isNotEmpty);
     expect(scrollDeltas.last.dx, isNonZero);
+    expect(scrollDeltas.last.dy, 0);
 
     await finger1.up();
     await finger2.up();

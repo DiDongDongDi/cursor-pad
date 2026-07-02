@@ -334,11 +334,47 @@
     }
   }
 
+  function isHorizontalPrimaryScroller(el) {
+    if (
+      el.hasAttribute &&
+      el.hasAttribute('data-cursorpad-table-scroll')
+    ) {
+      return true;
+    }
+    try {
+      var style = window.getComputedStyle(el);
+      var overflowX = style.overflowX;
+      var canScrollX =
+        (overflowX === 'auto' ||
+          overflowX === 'scroll' ||
+          overflowX === 'overlay') &&
+        el.scrollWidth > el.clientWidth + 1;
+      if (!canScrollX) {
+        return false;
+      }
+      var overflowY = style.overflowY;
+      var canScrollY =
+        (overflowY === 'auto' ||
+          overflowY === 'scroll' ||
+          overflowY === 'overlay') &&
+        el.scrollHeight > el.clientHeight + 1;
+      if (!canScrollY) {
+        return true;
+      }
+      return (
+        el.scrollWidth - el.clientWidth >
+        el.scrollHeight - el.clientHeight
+      );
+    } catch (e) {
+      return false;
+    }
+  }
+
   function findScrollableAt(x, y, axis) {
     var el = elementAt(x, y);
     while (el && el !== document.documentElement) {
       var axes = getScrollAxes(el);
-      if (axis === 'y' && axes.y) {
+      if (axis === 'y' && axes.y && !isHorizontalPrimaryScroller(el)) {
         return el;
       }
       if (axis === 'x' && axes.x) {
@@ -599,59 +635,24 @@
     },
 
     scroll: function (deltaX, deltaY) {
+      var absX = Math.abs(deltaX);
+      var absY = Math.abs(deltaY);
+      if (absX === 0 && absY === 0) {
+        return;
+      }
+
+      // Lock to the dominant axis so incidental cross-axis deltas from
+      // touchpads do not scroll nested overflow-x regions.
+      if (absY >= absX) {
+        deltaX = 0;
+      } else {
+        deltaY = 0;
+      }
+
       var verticalScrollable =
         deltaY !== 0 ? findScrollableAt(lastX, lastY, 'y') : null;
       var horizontalScrollable =
         deltaX !== 0 ? findScrollableAt(lastX, lastY, 'x') : null;
-
-      // Route wheel events by dominant axis so vertical scroll is not
-      // converted into horizontal scroll on overflow-x-only containers.
-      var wheelTarget = elementAt(lastX, lastY) || document.documentElement;
-      var wheelDeltaX = deltaX;
-      var wheelDeltaY = deltaY;
-      if (Math.abs(deltaY) >= Math.abs(deltaX)) {
-        if (verticalScrollable) {
-          wheelTarget = verticalScrollable;
-        }
-      } else if (horizontalScrollable) {
-        wheelTarget = horizontalScrollable;
-      }
-
-      var wheelEvent;
-      try {
-        wheelEvent = new WheelEvent('wheel', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: lastX,
-          clientY: lastY,
-          deltaX: wheelDeltaX,
-          deltaY: wheelDeltaY,
-          deltaMode: 0,
-        });
-      } catch (e) {
-        wheelEvent = document.createEvent('WheelEvent');
-        wheelEvent.initWheelEvent(
-          'wheel',
-          true,
-          true,
-          window,
-          0,
-          lastX,
-          lastY,
-          lastX,
-          lastY,
-          0,
-          null,
-          '',
-          wheelDeltaX,
-          wheelDeltaY,
-          0,
-          0,
-        );
-      }
-
-      wheelTarget.dispatchEvent(wheelEvent);
 
       if (verticalScrollable) {
         verticalScrollable.scrollTop += deltaY;

@@ -35,6 +35,8 @@ class TouchpadDetector extends StatefulWidget {
   State<TouchpadDetector> createState() => _TouchpadDetectorState();
 }
 
+enum _ScrollAxisLock { none, vertical, horizontal }
+
 class _TouchpadDetectorState extends State<TouchpadDetector> {
   static const _twoFingerSlop = 12.0;
 
@@ -46,6 +48,8 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
   bool _multiTouchActive = false;
   bool _twoFingerScrollActive = false;
   double _accumulatedCentroidTravel = 0;
+  Offset _accumulatedTwoFingerDelta = Offset.zero;
+  _ScrollAxisLock _scrollAxisLock = _ScrollAxisLock.none;
   Timer? _longPressTimer;
 
   Offset _computeCentroid() {
@@ -62,6 +66,8 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
   void _resetTwoFingerGesture() {
     _twoFingerScrollActive = false;
     _accumulatedCentroidTravel = 0;
+    _accumulatedTwoFingerDelta = Offset.zero;
+    _scrollAxisLock = _ScrollAxisLock.none;
   }
 
   void _beginTwoFingerGesture() {
@@ -103,8 +109,28 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
         _accumulatedCentroidTravel >= _twoFingerSlop) {
       _twoFingerScrollActive = true;
       if (frameCentroidDelta != Offset.zero) {
-        final scrollDelta = frameCentroidDelta * widget.scrollSensitivity;
-        widget.onScroll(Offset(-scrollDelta.dx, -scrollDelta.dy));
+        _accumulatedTwoFingerDelta += frameCentroidDelta;
+
+        if (_scrollAxisLock == _ScrollAxisLock.none &&
+            _accumulatedCentroidTravel >= _twoFingerSlop) {
+          if (_accumulatedTwoFingerDelta.dx.abs() >=
+              _accumulatedTwoFingerDelta.dy.abs()) {
+            _scrollAxisLock = _ScrollAxisLock.horizontal;
+          } else {
+            _scrollAxisLock = _ScrollAxisLock.vertical;
+          }
+        }
+
+        var scrollDelta = frameCentroidDelta * widget.scrollSensitivity;
+        scrollDelta = switch (_scrollAxisLock) {
+          _ScrollAxisLock.vertical => Offset(0, scrollDelta.dy),
+          _ScrollAxisLock.horizontal => Offset(scrollDelta.dx, 0),
+          _ScrollAxisLock.none => scrollDelta,
+        };
+
+        if (scrollDelta != Offset.zero) {
+          widget.onScroll(Offset(-scrollDelta.dx, -scrollDelta.dy));
+        }
       }
     }
 
@@ -225,12 +251,20 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
       },
       onPointerSignal: (event) {
         if (event is PointerScrollEvent) {
-          widget.onScroll(
-            Offset(
-              -event.scrollDelta.dx * widget.scrollSensitivity,
-              -event.scrollDelta.dy * widget.scrollSensitivity,
-            ),
+          final rawDelta = Offset(
+            -event.scrollDelta.dx * widget.scrollSensitivity,
+            -event.scrollDelta.dy * widget.scrollSensitivity,
           );
+          final absX = rawDelta.dx.abs();
+          final absY = rawDelta.dy.abs();
+          if (absX == 0 && absY == 0) {
+            return;
+          }
+
+          final lockedDelta = absY >= absX
+              ? Offset(0, rawDelta.dy)
+              : Offset(rawDelta.dx, 0);
+          widget.onScroll(lockedDelta);
         }
       },
       child: GestureDetector(
