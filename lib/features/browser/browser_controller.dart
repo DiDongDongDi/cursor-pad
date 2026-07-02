@@ -535,11 +535,11 @@ class BrowserController {
         defaultTargetPlatform == TargetPlatform.android &&
         px != null &&
         py != null) {
-      await WebViewTouchSimulator.clickAt(px, py);
       if (!firstClickAlreadySent) {
-        await Future<void>.delayed(const Duration(milliseconds: 50));
         await WebViewTouchSimulator.clickAt(px, py);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
       }
+      await WebViewTouchSimulator.clickAt(px, py);
     }
 
     await _webViewController?.evaluateJavascript(
@@ -612,7 +612,6 @@ class BrowserController {
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     if (useNativeDrag) {
       await WebViewTouchSimulator.dragMove(x, y);
-      return;
     }
     await _webViewController?.evaluateJavascript(
       source:
@@ -638,7 +637,6 @@ class BrowserController {
         py != null;
     if (useNativeDrag) {
       await WebViewTouchSimulator.dragUp(px, py);
-      return getSelectedText();
     }
     final args = _cursorArgs();
     return _evaluateSelection(

@@ -304,7 +304,7 @@ void main() {
     await tester.pump();
     await finger.down(const Offset(100, 100));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 100));
     expect(buttonDownCount, 1);
     expect(doubleTapCount, 0);
     await finger.up();

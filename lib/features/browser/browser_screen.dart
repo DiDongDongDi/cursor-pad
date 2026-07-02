@@ -50,6 +50,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   double _lastChromeHeight = -1;
   bool _tabSwitcherOpen = false;
   bool _buttonHeld = false;
+  bool _selectionReady = false;
 
   BrowserTab get _activeTab => _tabManager.activeTab;
   BrowserController get _activeController => _activeTab.controller;
@@ -430,6 +431,9 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
     final webViewPos = _webViewCursorPosition(context);
     if (_buttonHeld) {
+      if (!_selectionReady) {
+        return;
+      }
       await _activeController.updateSelectionAt(webViewPos.dx, webViewPos.dy);
       return;
     }
@@ -442,6 +446,10 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
     final webViewPos = _webViewCursorPosition(context);
     if (_buttonHeld) {
+      if (!_selectionReady) {
+        await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
+        return;
+      }
       await _activeController.moveCursorImmediate(webViewPos.dx, webViewPos.dy);
       await _activeController.updateSelectionAt(webViewPos.dx, webViewPos.dy);
       return;
@@ -455,6 +463,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
     await _activeController.cancelSelection();
     _buttonHeld = false;
+    _selectionReady = false;
     _activeController.selectionArmed = false;
   }
 
@@ -658,10 +667,17 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
 
-    await _syncCursorToPageImmediate();
+    if (_buttonHeld) {
+      return;
+    }
+
     _buttonHeld = true;
+    _selectionReady = false;
     _activeController.selectionArmed = true;
+    await _syncCursorToPageImmediate();
     await _activeController.beginSelection();
+    _selectionReady = true;
+    await _syncCursorToPageImmediate();
   }
 
   Future<void> _onButtonUp() async {
@@ -671,6 +687,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     await _syncCursorToPageImmediate();
     await _activeController.endSelection();
     _buttonHeld = false;
+    _selectionReady = false;
     _activeController.selectionArmed = false;
   }
 

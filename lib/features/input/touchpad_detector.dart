@@ -49,13 +49,14 @@ enum _ScrollAxisLock { none, vertical, horizontal }
 class _TouchpadDetectorState extends State<TouchpadDetector> {
   static const _twoFingerSlop = 12.0;
   static const _multiTapWindow = Duration(milliseconds: 350);
-  static const _secondPressHoldDelay = Duration(milliseconds: 300);
+  static const _secondPressMousedownDelay = Duration(milliseconds: 80);
 
   final Map<int, Offset> _pointers = {};
   final Map<int, Offset> _lastPointerPositions = {};
   Offset? _lastPanPosition;
   Offset? _lastMultiTouchCentroid;
   Offset? _secondPressOrigin;
+  double _secondPressMaxTravel = 0;
   bool _moved = false;
   bool _multiTouchActive = false;
   bool _twoFingerScrollActive = false;
@@ -65,7 +66,7 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
   _TapPhase _tapPhase = _TapPhase.idle;
   Timer? _longPressTimer;
   Timer? _afterFirstTapTimer;
-  Timer? _secondPressHoldTimer;
+  Timer? _secondPressMousedownTimer;
 
   Offset _computeCentroid() {
     if (_pointers.isEmpty) {
@@ -160,17 +161,18 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
   void dispose() {
     _longPressTimer?.cancel();
     _afterFirstTapTimer?.cancel();
-    _secondPressHoldTimer?.cancel();
+    _secondPressMousedownTimer?.cancel();
     super.dispose();
   }
 
   void _resetTapPhase() {
     _tapPhase = _TapPhase.idle;
     _secondPressOrigin = null;
+    _secondPressMaxTravel = 0;
     _afterFirstTapTimer?.cancel();
     _afterFirstTapTimer = null;
-    _secondPressHoldTimer?.cancel();
-    _secondPressHoldTimer = null;
+    _secondPressMousedownTimer?.cancel();
+    _secondPressMousedownTimer = null;
   }
 
   void _enterAfterFirstTap() {
@@ -187,11 +189,12 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
   void _enterSecondPressDown(Offset position) {
     _tapPhase = _TapPhase.secondPressDown;
     _secondPressOrigin = position;
+    _secondPressMaxTravel = 0;
     _afterFirstTapTimer?.cancel();
     _afterFirstTapTimer = null;
     _cancelLongPress();
-    _secondPressHoldTimer?.cancel();
-    _secondPressHoldTimer = Timer(_secondPressHoldDelay, () {
+    _secondPressMousedownTimer?.cancel();
+    _secondPressMousedownTimer = Timer(_secondPressMousedownDelay, () {
       if (_tapPhase == _TapPhase.secondPressDown) {
         _enterButtonHeld();
       }
@@ -204,14 +207,14 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
       return;
     }
     _tapPhase = _TapPhase.buttonHeld;
-    _secondPressHoldTimer?.cancel();
-    _secondPressHoldTimer = null;
+    _secondPressMousedownTimer?.cancel();
+    _secondPressMousedownTimer = null;
     widget.onButtonDown();
   }
 
   void _onSecondPressUp() {
-    _secondPressHoldTimer?.cancel();
-    _secondPressHoldTimer = null;
+    _secondPressMousedownTimer?.cancel();
+    _secondPressMousedownTimer = null;
     if (_tapPhase == _TapPhase.buttonHeld) {
       widget.onButtonUp();
     } else if (_tapPhase == _TapPhase.secondPressDown) {
@@ -220,12 +223,27 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
     _resetTapPhase();
   }
 
+  void _trackSecondPressMove(Offset position) {
+    if (_tapPhase != _TapPhase.secondPressDown &&
+        _tapPhase != _TapPhase.buttonHeld) {
+      return;
+    }
+    final origin = _secondPressOrigin;
+    if (origin == null) {
+      return;
+    }
+    final travel = (position - origin).distance;
+    if (travel > _secondPressMaxTravel) {
+      _secondPressMaxTravel = travel;
+    }
+  }
+
   void _maybeEnterButtonHeldFromMove(Offset position) {
     if (_tapPhase != _TapPhase.secondPressDown || _secondPressOrigin == null) {
       return;
     }
-    final travel = (position - _secondPressOrigin!).distance;
-    if (travel >= widget.moveThreshold) {
+    _trackSecondPressMove(position);
+    if (_secondPressMaxTravel >= widget.moveThreshold) {
       _enterButtonHeld();
     }
   }
@@ -330,6 +348,9 @@ class _TouchpadDetectorState extends State<TouchpadDetector> {
 
         if (_pointers.length == 1 && _lastPanPosition != null) {
           _maybeEnterButtonHeldFromMove(event.position);
+          if (_tapPhase == _TapPhase.buttonHeld) {
+            _trackSecondPressMove(event.position);
+          }
           final delta = (event.position - _lastPanPosition!) * widget.sensitivity;
           if (delta.distance >= widget.moveThreshold || _moved) {
             _moved = true;
