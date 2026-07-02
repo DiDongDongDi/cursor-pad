@@ -16,7 +16,6 @@ void main() {
         sensitivity: 1.0,
         onMove: onMove,
         onTap: () {},
-        onDoubleTap: () {},
         onTripleTap: () {},
         onLongPress: () {},
         onScroll: onScroll,
@@ -199,7 +198,6 @@ void main() {
         home: TouchpadDetector(
           onMove: (_) {},
           onTap: () => singleTapCount++,
-          onDoubleTap: () {},
           onTripleTap: () => tripleTapCount++,
           onLongPress: () {},
           onScroll: (_) {},

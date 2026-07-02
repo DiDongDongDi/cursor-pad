@@ -626,19 +626,6 @@ class _BrowserScreenState extends State<BrowserScreen>
     await _activeController.click();
   }
 
-  Future<void> _onDoubleTap() async {
-    if (_isCursorInChrome(context) || _isCursorInTabSwitcher(context)) {
-      return;
-    }
-
-    if (_copyMode.active) {
-      return;
-    }
-
-    await _syncCursorToPageImmediate();
-    await _activeController.doubleClick();
-  }
-
   Future<void> _onTripleTap() async {
     if (_isCursorInChrome(context) || _isCursorInTabSwitcher(context)) {
       return;
@@ -831,7 +818,6 @@ class _BrowserScreenState extends State<BrowserScreen>
         scrollSensitivity: _tabManager.settings.scrollSensitivity,
         onMove: _onMove,
         onTap: _onTap,
-        onDoubleTap: _onDoubleTap,
         onTripleTap: _onTripleTap,
         onLongPress: _onLongPress,
         onScroll: _onScroll,
