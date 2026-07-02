@@ -669,6 +669,25 @@ class _BrowserScreenState extends State<BrowserScreen>
     return _cursorState.position.dy >= _chromeHeight(context);
   }
 
+  bool _handleOpenLink(String url, {required bool newTab}) {
+    if (url.isEmpty) {
+      return false;
+    }
+    if (newTab) {
+      if (!_tabManager.createTab(url: url)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('标签页数量已达上限')),
+          );
+        }
+        return false;
+      }
+      return true;
+    }
+    unawaited(_activeController.loadUrl(url));
+    return true;
+  }
+
   Future<void> _handleTabSwitcherTap(TabSwitcherHitResult result) async {
     switch (result.target) {
       case TabSwitcherHitTarget.newTab:
@@ -1093,13 +1112,12 @@ class _BrowserScreenState extends State<BrowserScreen>
                                           onSizeChanged: (size) =>
                                               _onWebViewSizeChanged(tab, size),
                                           onCreateWindow: (url) {
-                                            if (url == null || url.isEmpty) {
-                                              return false;
+                                            if (url != null && url.isNotEmpty) {
+                                              _handleOpenLink(url, newTab: true);
                                             }
-                                            return _tabManager.createTab(
-                                              url: url,
-                                            );
                                           },
+                                          onOpenLink: (url, {required newTab}) =>
+                                              _handleOpenLink(url, newTab: newTab),
                                         ),
                                     ],
                                   );

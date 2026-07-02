@@ -8,7 +8,8 @@ import '../../core/constants/desktop_user_agent.dart';
 import '../../core/injection/script_loader.dart';
 import 'browser_controller.dart';
 
-typedef CreateWindowCallback = bool Function(String? url);
+typedef CreateWindowCallback = void Function(String? url);
+typedef OpenLinkCallback = bool Function(String url, {required bool newTab});
 
 /// Hosts [InAppWebView] in an isolated subtree so parent rebuilds
 /// (progress, cursor, toolbar) do not recreate the platform view.
@@ -21,6 +22,7 @@ class DesktopWebView extends StatefulWidget {
     this.hostKey = 0,
     this.onSizeChanged,
     this.onCreateWindow,
+    this.onOpenLink,
   });
 
   final BrowserController controller;
@@ -29,6 +31,7 @@ class DesktopWebView extends StatefulWidget {
   final int hostKey;
   final ValueChanged<Size>? onSizeChanged;
   final CreateWindowCallback? onCreateWindow;
+  final OpenLinkCallback? onOpenLink;
 
   @override
   State<DesktopWebView> createState() => _DesktopWebViewState();
@@ -93,6 +96,7 @@ class _DesktopWebViewState extends State<DesktopWebView> {
             initialHtml: widget.initialHtml,
             onCreated: widget.onCreated,
             onCreateWindow: widget.onCreateWindow,
+            onOpenLink: widget.onOpenLink,
           ),
         );
       },
@@ -109,6 +113,7 @@ class _InAppWebViewHost extends StatefulWidget {
     required this.onCreated,
     this.initialHtml,
     this.onCreateWindow,
+    this.onOpenLink,
   });
 
   final BrowserController controller;
@@ -117,6 +122,7 @@ class _InAppWebViewHost extends StatefulWidget {
   final VoidCallback onCreated;
   final String? initialHtml;
   final CreateWindowCallback? onCreateWindow;
+  final OpenLinkCallback? onOpenLink;
 
   @override
   State<_InAppWebViewHost> createState() => _InAppWebViewHostState();
@@ -189,6 +195,25 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
               await widget.controller.handleDeleteBookmark(id);
             },
           );
+          webViewController.addJavaScriptHandler(
+            handlerName: 'openLink',
+            callback: (args) {
+              final callback = widget.onOpenLink;
+              if (callback == null || args.isEmpty) {
+                return false;
+              }
+              final payload = args.first;
+              if (payload is! Map) {
+                return false;
+              }
+              final url = payload['url']?.toString();
+              if (url == null || url.isEmpty) {
+                return false;
+              }
+              final newTab = payload['newTab'] == true;
+              return callback(url, newTab: newTab);
+            },
+          );
           widget.controller.attach(
             webViewController,
             skipInitialLoad: widget.initialHtml != null,
@@ -240,11 +265,11 @@ class _InAppWebViewHostState extends State<_InAppWebViewHost> {
         },
         onCreateWindow: (controller, createWindowAction) async {
           final callback = widget.onCreateWindow;
-          if (callback == null) {
-            return false;
+          if (callback != null) {
+            final url = createWindowAction.request.url?.toString();
+            callback(url);
           }
-          final url = createWindowAction.request.url?.toString();
-          return callback(url);
+          return false;
         },
       ),
     );

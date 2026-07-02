@@ -473,6 +473,49 @@
     return el.closest ? el.closest('a[href]') : null;
   }
 
+  function openLinkViaHost(url, newTab) {
+    if (!url) {
+      return false;
+    }
+    if (
+      window.flutter_inappwebview &&
+      typeof window.flutter_inappwebview.callHandler === 'function'
+    ) {
+      window.flutter_inappwebview.callHandler('openLink', {
+        url: url,
+        newTab: !!newTab,
+      });
+      return true;
+    }
+    return false;
+  }
+
+  function anchorLinkInfo(anchor) {
+    if (!anchor) {
+      return null;
+    }
+    var href = anchor.getAttribute('href');
+    if (!href || href === '#') {
+      return { href: null, target: null, newTab: false };
+    }
+    var target = anchor.getAttribute('target');
+    var newTab = target === '_blank' || (!!target && target !== '_self');
+    return { href: anchor.href, target: target, newTab: newTab };
+  }
+
+  function linkInfoAt(nativeX, nativeY) {
+    var x = lastX;
+    var y = lastY;
+    if (nativeX != null && nativeY != null) {
+      var coords = toViewportCoords(nativeX, nativeY);
+      x = coords.x;
+      y = coords.y;
+    }
+    var target = elementAt(x, y);
+    var actionable = findActionableElement(target);
+    return anchorLinkInfo(findAnchor(actionable));
+  }
+
   function followAnchor(anchor) {
     var href = anchor.getAttribute('href');
     if (!href || href === '#') {
@@ -486,17 +529,38 @@
     var target = anchor.getAttribute('target');
 
     if (target === '_blank') {
+      if (openLinkViaHost(resolved, true)) {
+        return;
+      }
       window.open(resolved, '_blank', 'noopener,noreferrer');
       return;
     }
 
     if (target && target !== '_self') {
+      if (openLinkViaHost(resolved, true)) {
+        return;
+      }
       window.open(resolved, target);
       return;
     }
 
+    if (openLinkViaHost(resolved, false)) {
+      return;
+    }
     window.location.href = resolved;
   }
+
+  (function patchWindowOpen() {
+    var nativeOpen = window.open;
+    window.open = function (url, target, features) {
+      if (url && typeof url === 'string' && /^https?:/i.test(url)) {
+        if (openLinkViaHost(url, true)) {
+          return null;
+        }
+      }
+      return nativeOpen.apply(window, arguments);
+    };
+  })();
 
   function activateElement(el) {
     if (!el || isDisabled(el)) {
@@ -810,6 +874,9 @@
   }
 
   window.__cursorPad = {
+    openLinkViaHost: openLinkViaHost,
+    linkInfoAt: linkInfoAt,
+
     setNativeSize: function (width, height) {
       nativeWidth = Math.max(width, 1);
       nativeHeight = Math.max(height, 1);

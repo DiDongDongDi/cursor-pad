@@ -451,6 +451,26 @@ class BrowserController {
     return false;
   }
 
+  _LinkInfo? _parseLinkInfo(dynamic raw) {
+    if (raw == null) {
+      return null;
+    }
+    try {
+      final decoded = raw is String ? jsonDecode(raw) : raw;
+      if (decoded is! Map) {
+        return null;
+      }
+      final href = decoded['href']?.toString();
+      final newTab = decoded['newTab'] == true;
+      if (!newTab || href == null || href.isEmpty) {
+        return null;
+      }
+      return _LinkInfo(href: href, newTab: newTab);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> click({int button = 0, bool skipNativeTouch = false}) async {
     final px = _pendingCursorX;
     final py = _pendingCursorY;
@@ -464,6 +484,20 @@ class BrowserController {
         defaultTargetPlatform == TargetPlatform.android &&
         px != null &&
         py != null) {
+      final linkRaw = await _webViewController?.evaluateJavascript(
+        source:
+            'JSON.stringify(window.__cursorPad && window.__cursorPad.linkInfoAt($xArg, $yArg));',
+      );
+      final linkInfo = _parseLinkInfo(linkRaw);
+      if (linkInfo != null) {
+        final escapedUrl = jsonEncode(linkInfo.href);
+        await _webViewController?.evaluateJavascript(
+          source:
+              'window.__cursorPad && window.__cursorPad.openLinkViaHost($escapedUrl, true);',
+        );
+        return;
+      }
+
       await WebViewTouchSimulator.clickAt(px, py);
       // activateAt only detects IME need; native touch already activated the target.
       final raw = await _webViewController?.evaluateJavascript(
@@ -695,4 +729,11 @@ class BrowserController {
     }
     return 'https://$trimmed';
   }
+}
+
+class _LinkInfo {
+  const _LinkInfo({required this.href, required this.newTab});
+
+  final String href;
+  final bool newTab;
 }
