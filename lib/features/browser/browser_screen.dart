@@ -346,14 +346,10 @@ class _BrowserScreenState extends State<BrowserScreen>
       _urlController.text = state.currentUrl;
     }
 
-    if (state.isLoading) {
-      _toolbarVisibility.forceShow();
-    } else {
-      _toolbarVisibility.onCursorMove(
-        _cursorState.position.dy,
-        chromeHeight: chromeHeight,
-      );
-    }
+    _toolbarVisibility.onCursorMove(
+      _cursorState.position.dy,
+      chromeHeight: chromeHeight,
+    );
   }
 
   void _centerCursor() {
