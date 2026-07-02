@@ -210,79 +210,6 @@
     );
   }
 
-  function isEditableForIme(el) {
-    if (!el || isDisabled(el)) {
-      return false;
-    }
-    if (el.getAttribute('aria-readonly') === 'true') {
-      return false;
-    }
-
-    var tag = el.tagName;
-    if (tag === 'TEXTAREA') {
-      return !el.readOnly && !el.hasAttribute('readonly');
-    }
-    if (tag === 'INPUT') {
-      if (el.readOnly || el.hasAttribute('readonly')) {
-        return false;
-      }
-      var type = (el.type || 'text').toLowerCase();
-      return (
-        type === 'text' ||
-        type === 'search' ||
-        type === 'url' ||
-        type === 'email' ||
-        type === 'tel' ||
-        type === 'password' ||
-        type === 'number' ||
-        type === 'date' ||
-        type === 'time' ||
-        type === 'datetime-local' ||
-        type === 'month' ||
-        type === 'week'
-      );
-    }
-    if (el.isContentEditable) {
-      return el.isContentEditable === true;
-    }
-    return false;
-  }
-
-  function resolveImeTarget(el) {
-    if (!el) {
-      return null;
-    }
-    if (isEditableForIme(el)) {
-      return el;
-    }
-    if (el.tagName === 'LABEL') {
-      var forId = el.getAttribute('for');
-      if (forId) {
-        var linked = document.getElementById(forId);
-        if (isEditableForIme(linked)) {
-          return linked;
-        }
-      }
-    }
-    return null;
-  }
-
-  function willFocusEditableInput(el) {
-    return resolveImeTarget(el) != null;
-  }
-
-  function blurFocusedInput() {
-    var el = document.activeElement;
-    if (!el || el === document.body || el === document.documentElement) {
-      return false;
-    }
-    if (isFormControl(el)) {
-      el.blur();
-      return true;
-    }
-    return false;
-  }
-
   function shouldProgrammaticActivate(el, button) {
     if (button !== 0 || !el || isDisabled(el)) {
       return false;
@@ -651,9 +578,7 @@
       if (forId) {
         var linked = document.getElementById(forId);
         if (linked && !isDisabled(linked)) {
-          if (isEditableForIme(linked)) {
-            linked.focus();
-          }
+          linked.focus();
           if (typeof linked.click === 'function') {
             linked.click();
           }
@@ -662,10 +587,12 @@
       }
     }
 
-    if (isFormControl(el)) {
-      if (isEditableForIme(el)) {
-        el.focus();
-      }
+    if (
+      el.tagName === 'INPUT' ||
+      el.tagName === 'TEXTAREA' ||
+      el.tagName === 'SELECT'
+    ) {
+      el.focus();
       if (typeof el.click === 'function') {
         el.click();
       }
@@ -992,10 +919,6 @@
       var target = elementAt(lastX, lastY) || document.body;
       var actionable = findActionableElement(target) || target;
 
-      if (button === 0 && !willFocusEditableInput(actionable)) {
-        blurFocusedInput();
-      }
-
       dispatchClickSequence(actionable, lastX, lastY, { button: button });
 
       if (button === 0 && shouldProgrammaticActivate(actionable, button)) {
@@ -1026,14 +949,14 @@
       if (!actionable) {
         return { needsIme: false };
       }
-      var imeTarget = resolveImeTarget(actionable);
-      return {
-        needsIme: imeTarget != null,
-        tag: actionable.tagName,
-      };
+      var tag = actionable.tagName;
+      var needsIme =
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        actionable.isContentEditable;
+      return { needsIme: needsIme, tag: tag };
     },
-
-    blurFocusedInput: blurFocusedInput,
 
     doubleClick: function (nativeX, nativeY, firstClickAlreadySent) {
       if (nativeX != null && nativeY != null) {
