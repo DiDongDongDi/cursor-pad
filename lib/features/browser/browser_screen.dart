@@ -185,10 +185,13 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   void _onUrlFocusChanged() {
     if (_urlFocusNode.hasFocus) {
-      _toolbarVisibility.pin();
+      _toolbarVisibility.forceShow();
       _selectAllUrlText();
     } else {
-      _toolbarVisibility.unpin();
+      _toolbarVisibility.onCursorMove(
+        _cursorState.position.dy,
+        chromeHeight: _chromeHeight(context),
+      );
     }
   }
 
@@ -338,7 +341,7 @@ class _BrowserScreenState extends State<BrowserScreen>
 
     if (state.isLoading) {
       _toolbarVisibility.forceShow();
-    } else if (!_urlFocusNode.hasFocus) {
+    } else {
       _toolbarVisibility.onCursorMove(
         _cursorState.position.dy,
         chromeHeight: chromeHeight,
@@ -381,6 +384,17 @@ class _BrowserScreenState extends State<BrowserScreen>
     _cursorState.moveBy(delta, bounds);
     _activeTab.cursorState = _cursorState;
     _cursorPosition.value = _cursorState.position;
+
+    if (_urlFocusNode.hasFocus) {
+      final chromeHeight =
+          MediaQuery.paddingOf(context).top + _toolbarContentHeight;
+      if (_cursorState.position.dy >= chromeHeight) {
+        _urlFocusNode.unfocus();
+        _syncCursorToPage();
+        return;
+      }
+    }
+
     _toolbarVisibility.onCursorMove(
       _cursorState.position.dy,
       chromeHeight: _chromeHeight(context),
